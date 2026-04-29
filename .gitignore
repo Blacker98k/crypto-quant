@@ -1,0 +1,110 @@
+# ============================================================
+# crypto-quant · .gitignore
+#
+# 写作原则（参见 ADR-009 §2.3.1）：
+# - 显然产物（缓存 / 日志 / 编译产出）：Agent 可提 PR 加
+# - 涉及 secrets / 风控配置 / 数据范围：维护者本人确认
+# ============================================================
+
+
+# ── Python 工程产物（显然产物，Agent 可加） ──────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.installed.cfg
+
+# 虚拟环境
+.venv/
+.venv-*/
+venv/
+env/
+
+# pytest / coverage / type-check 缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# IPython / Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+
+# ── IDE / OS（显然产物，Agent 可加） ─────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+
+# ── 运行时数据（**敏感：维护者确认范围**） ───────────────────
+# 量化系统的本地数据 / 数据库 / 报告产物
+# 若将来需要把"示例数据"放入仓库，单独建 data_examples/ 并显式 add
+data/
+reports/
+logs/
+*.log
+*.pid
+
+
+# ── 数据库文件（**敏感：维护者确认**） ───────────────────────
+# SQLite 主库 + WAL/SHM
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.db
+*.db-journal
+
+
+# ── 凭据 / 高敏感配置（**绝对禁止入库**，详见 ADR-009 §2.3） ─
+# 这一段是不可妥协的；任何进入 git 都是 critical 安全事件
+.env
+.env.*
+secrets.yml
+*.secret
+*.key
+*.pem
+*.p12
+
+# 项目内的凭据 / 运行时配置
+config/secrets.yml
+config/secrets.*.yml
+config/runtime.yml          # 含 mode: live / paper 切换 + 二阶段确认
+config/risk.yml             # 风控阈值（仓位 / 杠杆 / 熔断）
+
+# 但保留示例 / 模板（维护者用 .example 后缀提交）
+!config/secrets.example.yml
+!config/runtime.example.yml
+!config/risk.example.yml
+!config/strategies/*.example.yml
+
+
+# ── 临时 / 调试产物 ──────────────────────────────────────────
+*.har
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# 缓存目录
+.cache/
+tmp/
+scratch/
+
+
+# ── Cursor / Agent 协作（按 ADR-009） ────────────────────────
+# Agent 工作目录 / patch 文件（默认不入仓库；要进必须维护者本人 review）
+.agent_workspace/
+*.patch.local
+agent-scratch/
