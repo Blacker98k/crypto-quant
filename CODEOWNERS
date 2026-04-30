@@ -1,0 +1,33 @@
+# CODEOWNERS · crypto-quant
+#
+# 谁负责审 PR。GitHub 在 PR 上自动 @ 对应 owner。
+# 配合 .github/branch protection 实现"main 必须经 CodeOwner review"
+#
+# 规则覆盖优先级：从下往上覆盖（最后匹配的生效）
+
+# ── 默认：所有路径都由维护者 review ─────────────────
+*  @Blacker98k
+
+
+# ── 高敏感文件（按 ADR-009 §2.3）：必须维护者本人改 + review ─
+
+/.gitignore                         @Blacker98k
+/CODEOWNERS                         @Blacker98k
+
+# 配置层
+/config/secrets.yml                 @Blacker98k
+/config/secrets.*.yml               @Blacker98k
+/config/risk.yml                    @Blacker98k
+/config/runtime.yml                 @Blacker98k
+/.env                               @Blacker98k
+
+# 部署 / 系统
+/scripts/deploy.sh                  @Blacker98k
+/systemd/                           @Blacker98k
+/.github/                           @Blacker98k
+
+# 决策日志（任何 ADR 变更必须维护者本人审）
+/docs/07-决策日志/                  @Blacker98k
+
+# AGENTS.md（决定其他 Agent 如何工作的元规则）
+/AGENTS.md                          @Blacker98k
