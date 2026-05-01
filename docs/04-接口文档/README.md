@@ -10,10 +10,10 @@
 
 | # | 文档 | 状态 | 内容 |
 |---|---|---|---|
-| 01 | [策略接口](./01-策略接口.md) | 🟡 Beta v0.1 | `Strategy` 基类 / `Signal` 数据模型 / 生命周期回调 |
-| 02 | [数据接口](./02-数据接口.md) | 🟡 Beta v0.1 | `DataFeed` / 历史查询 / 实时订阅 / 时间语义 |
-| 03 | [订单接口](./03-订单接口.md) | 🟡 Beta v0.1 | OMS API / OrderIntent / 强制止损契约 / 双腿原子化 |
-| 04 | [外部接口](./04-外部接口.md) | ⬜ | 交易所 API（Binance/OKX）/ Telegram bot / Dashboard REST |
+| 01 | [策略接口](./01-策略接口.md) | 🟡 Beta v0.1.1 | `Strategy` 基类 / `Signal` 数据模型 / 生命周期回调 |
+| 02 | [数据接口](./02-数据接口.md) | 🟡 Beta v0.1.1 | `DataFeed` / 历史查询 / 实时订阅 / 时间语义 |
+| 03 | [订单接口](./03-订单接口.md) | 🟡 Beta v0.1.1 | OMS API / OrderIntent / 强制止损契约 / 双腿原子化 |
+| 04 | [外部接口](./04-外部接口.md) | 🟡 Beta v0.1 | 交易所 API（Binance Spot/USDM）/ Telegram bot / Dashboard REST |
 
 ⬜ 未编写 · 🟡 Beta v0.x（Phase 3 实盘前可破坏式变更）· ✅ Stable v1.0（Phase 4 前冻结）
 
