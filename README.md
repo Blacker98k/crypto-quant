@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 当前阶段 | **Phase 0：文档与设计**（核心文档已完成，待提交 GitHub） |
-| 当前里程碑 | 33 份 md 已就位：PRD / 架构 / 9 份 ADR / 3 份策略 spec / 执行层详设 / 3 份接口契约 v0.1 / 数据模型（含 trade_groups + 真相源）/ 术语 / 路线图 / 踩坑 / 4 层记忆 |
-| 待办 | `.gitignore` + 提交 GitHub 私有仓库 → Phase 1 编码前再补"详设/01-数据层"和"接口/04-外部接口" |
-| 上次更新 | 2026-04-29 |
+| 当前阶段 | **Phase 1：基础设施编码中**（文档批已就位，骨架 PR 在推进） |
+| 当前里程碑 | 文档：PRD / 架构 / 9×ADR / 策略 spec×3 / 详设「数据层+执行层」/ 接口 4×v0.x / 数据模型 / 路线图 / 记忆库；代码：`uv` + `core/` + 迁移 V1 |
+| 待办 | P1.2 历史回填 → P1.3 WS → …（见 [`docs/08-路线图.md`](./docs/08-路线图.md)）；CI：`doc-sync-check` 仍待仓库 workflow scope |
+| 上次更新 | 2026-05-02 |
 | 维护 | Blacker + AI 协作（多 Agent 接力） |
 
 详细进度看 [`docs/08-路线图.md`](./docs/08-路线图.md) 或 [`记忆/02-当前状态.md`](./记忆/02-当前状态.md)。
@@ -30,6 +30,33 @@
 5. 做决定前：[`记忆/04-最近决策.md`](./记忆/04-最近决策.md) — 别推翻已讨论过的事
 
 更深的需求才进入 `docs/` 目录精读。
+
+---
+
+## 如何上手（Phase 1 · 代码）
+
+前置：[安装 uv](https://docs.astral.sh/uv/getting-started/installation/)（本机已测 `uv 0.11+`）。
+
+```bash
+cd crypto-quant
+uv sync                    # 安装依赖 + 可编辑安装本项目
+uv run pytest              # 跑测试（含 smoke）
+uv run ruff check .        # lint
+uv run mypy core           # 类型检查（当前仅扫描 core）
+```
+
+生命周期脚本骨架（占位，详见决策 B10）：
+
+```bash
+./scripts/start.sh
+./scripts/stop.sh
+./scripts/status.sh
+```
+
+配置：
+
+- 复制 `config/config.example.yml` → `config/config.yml`
+- Phase 3a 前的敏感项仍用占位：`secrets.example.yml`、`runtime.example.yml`、`risk.example.yml` 只做模板；**实盘前**再在维护者机器上写真文件（权限 600，永不入 git）。
 
 ---
 
@@ -57,8 +84,8 @@
 | `README.md` | ✅ |
 | `docs/01-产品需求文档.md` | ✅ |
 | `docs/02-架构设计文档.md` | ✅ |
-| `docs/03-详细设计/README.md` | 🟡（模块子文档 5 份待填，**策略 spec 3 份 + 04-执行层已完成**） |
-| `docs/04-接口文档/README.md` | 🟡（**01/02/03 三份 v0.1 完成**，04-外部接口待 Phase 1 编码前补） |
+| `docs/03-详细设计/README.md` | 🟡（**01-数据层 + 04-执行层 + strategies/**，其余子文档渐进补） |
+| `docs/04-接口文档/README.md` | 🟡（**01–04 四份** Beta v0.1 / v0.1.1） |
 | `docs/05-数据模型.md` | ✅（含真相源 + trade_groups + 溯源字段） |
 | `docs/06-术语表.md` | ✅ |
 | `docs/07-决策日志/README.md` | ✅（**ADR 9 份全部完成**） |

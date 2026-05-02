@@ -1,0 +1,49 @@
+# crypto-quant · 运行时实例配置（示例）
+#
+# ⚠️ 复制为 runtime.yml 并按需填写。实盘相关的 mode 切换与二阶段确认
+# 只允许维护者本人在生产机上手改——Agent 永远不直接改运行时文件。
+#
+# 本文件的 gitignore：`config/runtime.yml`
+# （见 `.gitignore` + ADR-009 §2.3）
+
+instance:
+  name: cq-dev-local
+  host: 127.0.0.1
+  timezone: UTC
+
+# ─── trading mode ───────────────────────────────────────────────────────
+mode: paper                         # paper | degraded | frozen （live 只允许 Phase 3d+）
+
+# paper 模式不产生真实下单；必须与 live SQLite 实例隔离——见数据模型 §2.5
+environment: development            # development | staging | production
+
+# ─── Binance ────────────────────────────────────────────────────────────
+exchange:
+  default: binance_usdm             # Phase 1-3：仅 Binance（ADR-004）
+  proxy: "http://127.0.0.1:57777"   # 中国大陆访问必选；为空则不走代理
+  request_timeout_ms: 5000
+  max_retries: 3
+
+# ─── Dashboard REST（参见 接口文档/04 §4）───────────────────────────────
+dashboard:
+  enabled: false                    # Phase 1.9 才打开
+  bind: 127.0.0.1
+  port: 8088
+  # Phase 3a 写操作时 Dashboard 会从启动日志读取确认 token；
+  confirm_token_ttl_hours: 24
+
+# ─── Telegram（Phase 3a 接入，本示例仅占位）──────────────────────────────
+telegram:
+  enabled: false
+  bot_token_env: TELEGRAM_BOT_TOKEN # 不进 secrets.yml——放环境变量更安全
+  chat_id: "<FILL_ME>"
+  rate_limit_per_min: 30
+
+# ─── 健康检查 ─────────────────────────────────────────────────────────────
+health:
+  interval_seconds: 30              # `/health` 内部检查轮询间隔
+  ws_heartbeat_seconds: 5           # Binance WS 心跳超时阈值
+  reconnect_backoff_seconds: [1, 2, 5, 10, 30]
+
+# ─── 启动 no_proxy ───────────────────────────────────────────────────────-
+# Dashboard / 脚本访问本机必须用 no_proxy——见 docs/09-踩坑记录.md

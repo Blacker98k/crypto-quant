@@ -1,0 +1,23 @@
+# S1 · BTC/ETH 趋势跟随（示例参数）
+# 完整规则见 docs/03-详细设计/strategies/S1-BTC-ETH趋势跟随.md
+
+strategy:
+  id: s1_btc_eth_trend
+  symbols: [BTCUSDT, ETHUSDT]
+  market: perp
+  timeframes:
+    entry: 4h
+    trend_filter: 1d
+  leverage_target: 2
+
+entry:
+  donchian_period: 20
+  atr_period: 14
+  atr_relative_min_mult: 1.0           # vs 过去 30d ATR median
+  volume_spike_mult: 1.2             # vs 过去 7d 日均成交额（实现期用实盘数据）
+
+risk:
+  per_trade_risk_pct: 0.01           # 单笔风险 1% equity
+  trail_stop_atr_mult: 1.5           # Donchian 突破 + trailing ATR stop
+  max_adds: 3                        # 首仓50% → 加仓25%+25%（实现期控制）
+  max_symbol_exposure_pct: 0.25      # 与 portfolio 层对齐
