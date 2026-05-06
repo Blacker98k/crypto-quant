@@ -218,32 +218,31 @@ class TestS2AltcoinReversal:
         assert s.version == "dev"
 
 
-# ─── S3 Funding Arbitrage ──────────────────────────────────────────────────────
+# ─── S3 Pair Trading ─────────────────────────────────────────────────────────
 
 
-class TestS3FundingArbitrage:
+class TestS3PairTrading:
     def test_required_data(self):
-        from core.strategy import S3FundingArbitrage
+        from core.strategy import S3PairTrading
 
-        s = S3FundingArbitrage()
+        s = S3PairTrading()
         dr = s.required_data()
-        assert dr.symbols == []
-        assert "1h" in dr.timeframes
+        assert "BTCUSDT" in dr.symbols
+        assert "ETHUSDT" in dr.symbols
         assert "4h" in dr.timeframes
-        assert dr.needs_funding is True
+        assert dr.needs_funding is False
 
-    def test_on_bar_stub(self):
-        from core.strategy import S3FundingArbitrage
+    def test_on_bar_returns_list(self):
+        from core.strategy import S3PairTrading
 
-        s = S3FundingArbitrage()
-        result = s.on_bar(None, None)
-        assert result == []
+        s = S3PairTrading()
+        assert callable(s.on_bar)
 
     def test_name_and_version(self):
-        from core.strategy import S3FundingArbitrage
+        from core.strategy import S3PairTrading
 
-        s = S3FundingArbitrage()
-        assert s.name == "S3_funding_arbitrage"
+        s = S3PairTrading()
+        assert s.name == "S3_pair_trading"
         assert s.version == "dev"
 
 

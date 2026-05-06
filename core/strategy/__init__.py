@@ -11,13 +11,13 @@ from core.strategy.base import (
 )
 from core.strategy.s1_btc_trend import S1BtcEthTrend
 from core.strategy.s2_altcoin_reversal import S2AltcoinReversal
-from core.strategy.s3_funding_arb import S3FundingArbitrage
+from core.strategy.s3_funding_arb import S3PairTrading
 
 __all__ = [
     "DataRequirement",
     "S1BtcEthTrend",
     "S2AltcoinReversal",
-    "S3FundingArbitrage",
+    "S3PairTrading",
     "Signal",
     "Strategy",
     "StrategyContext",
