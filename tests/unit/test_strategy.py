@@ -182,8 +182,8 @@ class TestS1BtcEthTrend:
         from core.strategy import S1BtcEthTrend
 
         s = S1BtcEthTrend()
-        assert s.donchian_period == 20
-        assert s.atr_period == 14
+        assert s.donchian_period == 15
+        assert s.atr_period == 10
         assert s.atr_relative_min_mult == 1.0
         assert s.volume_spike_mult == 1.2
         assert s.trail_stop_atr_mult == 1.5
