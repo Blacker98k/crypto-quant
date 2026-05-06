@@ -2,19 +2,36 @@
 # 完整规则见 docs/03-详细设计/strategies/S3-资金费率套利.md
 
 strategy:
-  id: s3_funding_arb
-  universe: scan                     # top 30 流动性；实现期由 Universe 脚本更新
-  trigger_interval: 8h               # 资金费结算前 30min 评估（实现期定 cron）
-  max_concurrent_pairs: 5
+  id: s3_funding_arbitrage
+  symbols_pool: core                  # top 30，按流动性排
+  max_symbols: 30
+  markets: [spot, perp]               # 双腿：现货 + 永续
+  trigger_seconds_before_settle: 1800 # 资金费结算前 30min 评估
+  leverage_target: 1                  # 不加杠杆
 
 entry:
-  funding_abs_threshold: 0.001       # |funding| ≥ 0.10%/8h
-  basis_max_pct: 0.005               # |perp-spot|/spot ≤ 0.5%
-  min_perp_volume_24h_usdt: 100_000_000
-  min_spot_volume_24h_usdt: 50_000_000
-  positive_funding_only: true        # Phase 1 只做正费率方向（spec §3.4）
+  min_funding_rate_abs: 0.001         # funding rate 绝对值 ≥ 0.10%/8h
+  min_same_direction_count: 3         # 同方向连续 ≥ 3 次（30 天内）
+  max_basis_deviation_pct: 0.005      # 永续/现货偏离 ≤ 0.5%
+  min_perp_24h_volume_usdt: 100_000_000   # 永续 24h 成交额 ≥ 1 亿
+  min_spot_24h_volume_usdt: 50_000_000    # 现货 24h 成交额 ≥ 5000 万
+  direction: positive_only            # Phase 1 只做正费率方向（做空永续 + 买现货）
+
+exit:
+  funding_rate_return_threshold: 0.0003   # funding rate 跌到 < 0.03%/8h → 平仓
+  max_basis_stop_pct: 0.01                # 基差扩大 ≥ 1% → 强制平仓
+  time_stop_days: 7                       # 持仓超 7 天未回归 → 平仓
+  stale_funding_hours: 4                  # rate 已回归但仍持仓超 4h → 平仓
 
 risk:
-  max_notional_per_leg_pct: 0.10     # 单笔腿 ≤ 10% equity
-  basis_stop_pct: 0.01               # 基差扩大 ≥ 1% 强平
-  leg_timeout_seconds: 30            # 半腿超时（trade_groups 状态机）
+  max_position_pct: 0.10              # 单标的占总资金 ≤ 10%（现货 5% + 保证金 5%）
+  max_concurrent_groups: 5            # 最多同时 5 个套利组
+  max_total_exposure_pct: 0.50        # 总占用 ≤ 50%
+  max_slippage_diff_pct: 0.003        # 现货-永续滑点差 ≥ 0.3% → 撤单
+  max_single_loss_pct: 0.01           # 单笔套利亏损 ≥ 1% → 强制平仓（理论上不该发生）
+
+atomic:
+  leg_timeout_seconds: 30             # 第一腿成交后 30s 内第二腿必须成交
+  half_leg_policy: unwind             # 超时 → 撤第一腿（市价反向平）
+  unwind_retries: 3                   # 平仓失败重试次数
+  unwind_partial_policy: critical     # 平仓部分失败 → critical 告警 + 暂停 S3

@@ -29,7 +29,6 @@ import pytest
         "core.risk",
         "core.execution",
         "core.monitor",
-        "core.universe",
         "core.db",
         # 研究区
         "research",

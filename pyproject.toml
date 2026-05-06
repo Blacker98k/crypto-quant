@@ -17,11 +17,16 @@ classifiers = [
   "Private :: Do Not Upload",
 ]
 
-# Phase 1 起步只装最小集；具体重型库（pyarrow / duckdb / aiohttp / websockets /
-# vectorbt 等）由后续 PR 各自加，避免一上来就拖慢 uv sync 节奏。
+# Phase 1 数据层起步依赖。每引入一个新库都有明确的"谁在用"（见注释）。
 dependencies = [
   "pydantic>=2.7",
   "PyYAML>=6.0",
+  "ccxt>=4.4",            # exchange/* REST adapter
+  "pyarrow>=15",          # parquet_io 读写
+  "duckdb>=0.10",         # parquet_io 查询（列式扫描）
+  "aiohttp>=3.9",         # ws_subscriber WebSocket 客户端
+  "fastapi>=0.110",        # dashboard REST API
+  "uvicorn[standard]>=0.29",  # dashboard ASGI server
 ]
 
 [dependency-groups]
@@ -70,6 +75,7 @@ select = [
 ]
 ignore = [
   "E501",  # 行长度交给 line-length 即可
+  "RUF001", # 中文字符串中的全角标点；同 RUF002/RUF003 保持一致
   "RUF002", # 中文 docstring 大量使用全角标点；按编码约定应保持中文可读性而非强制半角
   "RUF003", # 中文注释分隔线使用全角括号；可读性优于 ASCII 洁癖
   "N818",   # 异常类名已与接口契约绑定（文档里的 DataNotAvailable 等）；不强制 Error 后缀

@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 当前阶段 | **Phase 1：基础设施编码中**（文档批已就位，骨架 PR 在推进） |
-| 当前里程碑 | 文档：PRD / 架构 / 9×ADR / 策略 spec×3 / 详设「数据层+执行层」/ 接口 4×v0.x / 数据模型 / 路线图 / 记忆库；代码：`uv` + `core/` + 迁移 V1 |
-| 待办 | P1.2 历史回填 → P1.3 WS → …（见 [`docs/08-路线图.md`](./docs/08-路线图.md)）；CI：`doc-sync-check` 仍待仓库 workflow scope |
-| 上次更新 | 2026-05-02 |
+| 当前阶段 | **Phase 1：基础设施收尾**（策略层/撮合引擎/回测/Dashboard 已就位） |
+| 当前里程碑 | P1.1 骨架 ✅ · P1.5 DB Schema ✅ · P1.6 策略接口 ✅ · P1.7 paper 撮合器 ✅ · P1.8 vectorbt 回测 ✅ · P1.9 Dashboard ✅；待 P1.2 历史回填 + P1.3 实时 WS |
+| 待办 | 真实 Binance 历史数据拉取 → WS 实时订阅（见 [`docs/08-路线图.md`](./docs/08-路线图.md)） |
+| 上次更新 | 2026-05-04 |
 | 维护 | Blacker + AI 协作（多 Agent 接力） |
 
 详细进度看 [`docs/08-路线图.md`](./docs/08-路线图.md) 或 [`记忆/02-当前状态.md`](./记忆/02-当前状态.md)。
@@ -43,6 +43,20 @@ uv sync                    # 安装依赖 + 可编辑安装本项目
 uv run pytest              # 跑测试（含 smoke）
 uv run ruff check .        # lint
 uv run mypy core           # 类型检查（当前仅扫描 core）
+```
+
+### 启动看板
+
+```bash
+uv run python -m dashboard.server
+# 浏览器打开 http://localhost:8089
+# 无 API Key 也能看 — 内置合成行情模拟器 + paper 撮合
+```
+
+### 跑回测 Demo
+
+```bash
+uv run python research/backtest/demo_dual_ma.py
 ```
 
 生命周期脚本骨架（占位，详见决策 B10）：
