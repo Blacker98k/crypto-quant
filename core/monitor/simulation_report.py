@@ -45,4 +45,33 @@ class SimulationReportWriter:
         return self._file
 
 
-__all__ = ["SimulationReportWriter"]
+def summarize_simulation_report(path: Path) -> dict[str, Any]:
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    passed = sum(1 for row in rows if row.get("passed") is True)
+    totals: dict[str, int | float] = {}
+    for row in rows:
+        result = row.get("result")
+        if not isinstance(result, dict):
+            continue
+        for key, value in result.items():
+            if isinstance(value, int | float):
+                totals[key] = totals.get(key, 0) + value
+    cycles = len(rows)
+    return {
+        "cycles": cycles,
+        "passed": passed,
+        "failed": cycles - passed,
+        "pass_rate": round(passed / cycles, 4) if cycles else 0.0,
+        "symbols": sorted({str(row["symbol"]) for row in rows if "symbol" in row}),
+        "price_sources": sorted(
+            {str(row["price_source"]) for row in rows if "price_source" in row}
+        ),
+        "totals": totals,
+    }
+
+
+__all__ = ["SimulationReportWriter", "summarize_simulation_report"]
