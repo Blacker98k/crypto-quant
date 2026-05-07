@@ -16,7 +16,6 @@ import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
-from core.data.exchange.base import Bar
 from core.data.feed import ResearchFeed
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
@@ -153,7 +152,7 @@ def run_backtest():
         print(f"  入场信号: {n_entries} 次")
 
         if n_entries == 0:
-            print(f"  无信号，跳过")
+            print("  无信号，跳过")
             continue
 
         pf = vbt.Portfolio.from_signals(

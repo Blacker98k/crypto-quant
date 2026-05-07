@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.common.exceptions import IdempotencyConflict, InvalidOrderIntent, InvalidStopLoss
-from core.execution.order_types import CancelResult, Fill, Order, OrderHandle, OrderIntent
+from core.execution.order_types import CancelResult, OrderHandle, OrderIntent
 from core.execution.paper_engine import PaperMatchingEngine
 
 

@@ -7,11 +7,21 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     from core.data.exchange.base import Bar
     from core.data.feed import DataFeed, Tick
+
+
+class _ClockLike(Protocol):
+    def now_ms(self) -> int: ...
+
+
+class _StrategyRepoLike(Protocol):
+    def kv_get(self, strategy: str, key: str) -> str | None: ...
+
+    def kv_set(self, strategy: str, key: str, value_json: str) -> None: ...
 
 # ─── 数据类 ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +49,7 @@ class Signal:
     side: Literal["long", "short", "close"]
     symbol: str
     entry_price: float | None = None
-    stop_price: float = 0.0
+    stop_price: float | None = 0.0
     target_price: float | None = None
     confidence: float = 0.5
     suggested_size: float = 0.0
@@ -63,8 +73,8 @@ class StrategyContext:
     def __init__(
         self,
         data: DataFeed,
-        clock: object,  # core.common.clock.Clock
-        repo: object,  # core.data.sqlite_repo.SqliteRepo
+        clock: _ClockLike | None,
+        repo: _StrategyRepoLike,
         strategy_name: str,
     ) -> None:
         self._data = data
@@ -83,7 +93,11 @@ class StrategyContext:
 
     def now_ms(self) -> int:
         """当前 UTC 毫秒时间戳。回测时返回注入的虚拟时间。"""
-        return self._clock.now_ms()
+        if self._clock is not None:
+            return self._clock.now_ms()
+        import time
+
+        return int(time.time() * 1000)
 
     # ─── 持久化 KV ───────────────────────────────────────────────────────
 

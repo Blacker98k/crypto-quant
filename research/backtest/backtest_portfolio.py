@@ -15,13 +15,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from core.data.exchange.base import Bar
 from core.data.feed import ResearchFeed
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.db.migration_runner import MigrationRunner
 from core.strategy.indicators import (
-    compute_atr, compute_bollinger, compute_donchian, compute_rsi,
+    compute_atr,
+    compute_bollinger,
+    compute_donchian,
+    compute_rsi,
     compute_sma,
 )
 
@@ -78,7 +80,10 @@ def load_candles(symbol: str, tf: str, n: int = 1000) -> pd.DataFrame:
 
 def backtest_s1_symbol(df: pd.DataFrame, trend_df: pd.DataFrame, cash: float) -> dict:
     """对单个标的运行 S1 回测。"""
-    close = df["close"]; high = df["high"]; low = df["low"]; vol = df["quote_volume"]
+    close = df["close"]
+    high = df["high"]
+    low = df["low"]
+    vol = df["quote_volume"]
 
     donch = compute_donchian(high, low, S1_DONCHIAN)
     donch_upper = donch["upper"].shift(1)
@@ -110,12 +115,20 @@ def backtest_s1_symbol(df: pd.DataFrame, trend_df: pd.DataFrame, cash: float) ->
     il, iss = False, False
     for i in range(1, n):
         if not il and not iss:
-            if el.iloc[i]: entries.iloc[i] = True; il = True
-            elif es_.iloc[i]: entries.iloc[i] = True; iss = True
+            if el.iloc[i]:
+                entries.iloc[i] = True
+                il = True
+            elif es_.iloc[i]:
+                entries.iloc[i] = True
+                iss = True
         elif il:
-            if xl.iloc[i]: exits.iloc[i] = True; il = False
+            if xl.iloc[i]:
+                exits.iloc[i] = True
+                il = False
         elif iss:
-            if xs.iloc[i]: exits.iloc[i] = True; iss = False
+            if xs.iloc[i]:
+                exits.iloc[i] = True
+                iss = False
 
     import vectorbt as vbt
     if entries.sum() == 0:
@@ -241,7 +254,7 @@ def main():
         print("  S2: 无交易信号（数据不足）")
 
     print(f"\n{'=' * 60}")
-    print(f"  组合回测完成。")
+    print("  组合回测完成。")
     print(f"{'=' * 60}")
 
 

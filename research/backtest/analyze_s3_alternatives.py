@@ -9,10 +9,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-from core.data.exchange.base import Bar
 from core.data.feed import ResearchFeed
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
@@ -65,7 +64,7 @@ def main():
         print(f"  |Z-score| > {threshold}: {extreme} 次 ({extreme/len(common)*100:.1f}%)")
 
     # 简化配对交易回测
-    print(f"\n  配对交易模拟（Z-score ±2, 回归均值出场）:")
+    print("\n  配对交易模拟（Z-score ±2, 回归均值出场）:")
     position = pd.Series(0, index=ratio.index)
     position[zscore > 2.0] = -1   # ETH 相对 BTC 太贵 → 空 ETH 多 BTC
     position[zscore < -2.0] = 1   # ETH 相对 BTC 太便宜 → 多 ETH 空 BTC
@@ -77,7 +76,7 @@ def main():
     print(f"  持仓周期: {in_market} ({in_market/len(position)*100:.1f}%)")
 
     # 2. 波动率突破策略分析
-    print(f"\n[分析 2] 波动率突破策略")
+    print("\n[分析 2] 波动率突破策略")
     # 用 BTC 4h 数据
     ret = btc["close"].pct_change()
     volatility = ret.rolling(24).std() * np.sqrt(24)  # 24期滚动波动率
@@ -97,10 +96,10 @@ def main():
     print(f"{'='*60}")
 
     # 保存关键指标
-    print(f"\n技术指标汇总:")
+    print("\n技术指标汇总:")
     print(f"  ETH/BTC 比率当前 Z-score: {zscore.iloc[-1]:.2f}")
     print(f"  BTC 24h 波动率: {vol_now*100:.2f}%")
-    print(f"  建议: 配对交易可替代 S3（与 S1/S2 低相关）")
+    print("  建议: 配对交易可替代 S3（与 S1/S2 低相关）")
 
 
 if __name__ == "__main__":

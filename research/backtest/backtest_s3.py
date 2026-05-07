@@ -14,7 +14,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from core.data.exchange.base import Bar
 from core.data.feed import ResearchFeed
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
@@ -70,13 +69,10 @@ def run_backtest():
     # 持仓状态机
     n = len(ratio)
     equity = pd.Series(INITIAL_CASH, index=ratio.index)
-    position_type = pd.Series(0, index=ratio.index)  # 0=空仓, 1=多ETH空BTC, -1=空ETH多BTC
-    entry_idx = pd.Series(-1, index=ratio.index)
     entry_z = pd.Series(0.0, index=ratio.index)
     trade_log = []
     in_pos = 0
     e_idx = -1
-    e_z = 0.0
     prev_equity = INITIAL_CASH
 
     btc_pos = 0.0  # BTC 持仓数量（正=多, 负=空）
@@ -93,7 +89,6 @@ def run_backtest():
                 # 简化：每腿用 LEG_SIZE * equity
                 in_pos = -1
                 e_idx = i
-                e_z = z
                 entry_z.iloc[i] = z
                 btc_pos_val = INITIAL_CASH * 0.5
                 eth_pos_val = -INITIAL_CASH * 0.5
@@ -109,7 +104,6 @@ def run_backtest():
                 # ETH 强 → 多 ETH 空 BTC
                 in_pos = 1
                 e_idx = i
-                e_z = z
                 entry_z.iloc[i] = z
                 btc_pos_val = -INITIAL_CASH * 0.5
                 eth_pos_val = INITIAL_CASH * 0.5
@@ -173,7 +167,7 @@ def run_backtest():
     wins = [t for t in completed if t["total_pnl"] > 0]
     losses = [t for t in completed if t["total_pnl"] <= 0]
 
-    print(f"\n  交易统计:")
+    print("\n  交易统计:")
     print(f"    总交易: {len(completed)} 笔")
     print(f"    盈利: {len(wins)} 笔 ({len(wins)/len(completed)*100:.0f}% 胜率)" if completed else "    盈利: 0 笔")
     print(f"    亏损: {len(losses)} 笔" if losses else "    亏损: 0 笔")
@@ -192,7 +186,7 @@ def run_backtest():
 
     final_equity = equity.iloc[-1]
     total_return = (final_equity / INITIAL_CASH - 1) * 100
-    print(f"\n  资金曲线:")
+    print("\n  资金曲线:")
     print(f"    起始: ${INITIAL_CASH:.0f}")
     print(f"    结束: ${final_equity:.2f}")
     print(f"    收益: {total_return:.2f}%")
@@ -205,7 +199,7 @@ def run_backtest():
 
     # 最近交易明细
     if completed:
-        print(f"\n  最近 5 笔交易:")
+        print("\n  最近 5 笔交易:")
         for t in completed[-5:]:
             print(f"    {t['type'][:20]:20s} | "
                   f"Z {t['entry_z']:+.2f}→{t['exit_z']:+.2f} | "
@@ -215,7 +209,7 @@ def run_backtest():
     # 对比 Buy&Hold
     btc_bh = (btc_close.iloc[-1] / btc_close.iloc[LOOKBACK] - 1) * 100
     eth_bh = (eth_close.iloc[-1] / eth_close.iloc[LOOKBACK] - 1) * 100
-    print(f"\n  基准 (Buy&Hold):")
+    print("\n  基准 (Buy&Hold):")
     print(f"    BTC: {btc_bh:.2f}%")
     print(f"    ETH: {eth_bh:.2f}%")
     print(f"    等权重: {(btc_bh + eth_bh) / 2:.2f}%")
@@ -228,7 +222,7 @@ def run_backtest():
         pd.DataFrame(completed).to_csv(report_dir / "s3_trades.csv", index=False)
 
     print(f"\n{'='*60}")
-    print(f"  回测完成。")
+    print("  回测完成。")
     print(f"{'='*60}")
 
 

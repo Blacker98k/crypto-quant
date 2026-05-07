@@ -22,7 +22,6 @@ from core.data.sqlite_repo import SqliteRepo
 from core.db.migration_runner import MigrationRunner
 from core.strategy.indicators import compute_atr, compute_donchian, compute_sma
 
-
 SYMBOL = "BTCUSDT"
 ENTRY_TF = "4h"
 TREND_TF = "1d"
@@ -51,7 +50,10 @@ def load_data() -> pd.DataFrame:
 
 
 def compute_signals_for_params(df, tdf, donchian_p, atr_p, trail_mult, trend_p, trend_long_p):
-    close = df["close"]; high = df["high"]; low = df["low"]; vol = df["quote_volume"]
+    close = df["close"]
+    high = df["high"]
+    low = df["low"]
+    vol = df["quote_volume"]
 
     donch = compute_donchian(high, low, donchian_p)
     donch_upper = donch["upper"].shift(1)
@@ -83,16 +85,26 @@ def compute_signals_for_params(df, tdf, donchian_p, atr_p, trail_mult, trend_p, 
     il, is_ = False, False
     for i in range(1, n):
         if not il and not is_:
-            if el.iloc[i]: entries.iloc[i] = True; il = True
-            elif es_.iloc[i]: entries.iloc[i] = True; is_ = True
+            if el.iloc[i]:
+                entries.iloc[i] = True
+                il = True
+            elif es_.iloc[i]:
+                entries.iloc[i] = True
+                is_ = True
         elif il:
             if xl.iloc[i]:
-                exits.iloc[i] = True; il = False
-                if es_.iloc[i]: entries.iloc[i] = True; is_ = True
+                exits.iloc[i] = True
+                il = False
+                if es_.iloc[i]:
+                    entries.iloc[i] = True
+                    is_ = True
         elif is_:
             if xs.iloc[i]:
-                exits.iloc[i] = True; is_ = False
-                if el.iloc[i]: entries.iloc[i] = True; il = True
+                exits.iloc[i] = True
+                is_ = False
+                if el.iloc[i]:
+                    entries.iloc[i] = True
+                    il = True
     return entries, exits
 
 
@@ -118,7 +130,7 @@ def run_scan():
     done = 0
 
     for combo in itertools.product(*[param_grid[k] for k in keys]):
-        params = dict(zip(keys, combo))
+        params = dict(zip(keys, combo, strict=False))
         # 确保趋势快线 < 慢线
         if params["trend_ma_period"] >= params["trend_long_ma_period"]:
             continue

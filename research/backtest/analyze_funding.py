@@ -7,13 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from core.data.exchange.binance_usdm import BinanceUsdmAdapter
-from core.strategy.indicators import compute_sma
 
 
 def analyze_funding_rates():
@@ -78,7 +75,7 @@ async def fetch_and_analyze():
         df["pos_streak"] = (df["pos_extreme"] != df["pos_extreme"].shift()).cumsum()
         pos_streaks = df[df["pos_extreme"]].groupby("pos_streak").size()
         if len(pos_streaks) > 0:
-            print(f"\n  正极端持续时长:")
+            print("\n  正极端持续时长:")
             print(f"    最长: {pos_streaks.max()} 个周期 ({pos_streaks.max()*8}h)")
             print(f"    平均: {pos_streaks.mean():.1f} 个周期")
             print(f"    次数: {len(pos_streaks)}")
@@ -86,13 +83,13 @@ async def fetch_and_analyze():
         df["neg_streak"] = (df["neg_extreme"] != df["neg_extreme"].shift()).cumsum()
         neg_streaks = df[df["neg_extreme"]].groupby("neg_streak").size()
         if len(neg_streaks) > 0:
-            print(f"  负极端持续时长:")
+            print("  负极端持续时长:")
             print(f"    最长: {neg_streaks.max()} 个周期 ({neg_streaks.max()*8}h)")
             print(f"    平均: {neg_streaks.mean():.1f} 个周期")
             print(f"    次数: {len(neg_streaks)}")
 
         # 套利收益模拟（简化）
-        print(f"\n  套利收益模拟（当 |费率| > 0.01% 时开仓）:")
+        print("\n  套利收益模拟（当 |费率| > 0.01% 时开仓）:")
         df["position"] = 0
         df.loc[df["rate"] > 0.01/100, "position"] = -1  # 费率正→做空永续
         df.loc[df["rate"] < -0.01/100, "position"] = 1  # 费率负→做多永续
@@ -104,7 +101,7 @@ async def fetch_and_analyze():
         print(f"    年化(180天): {total_funding*100*365/180:.2f}%")
 
         # 只开在更极端时
-        print(f"\n  套利收益模拟（当 |费率| > 0.05% 时开仓）:")
+        print("\n  套利收益模拟（当 |费率| > 0.05% 时开仓）:")
         df["position2"] = 0
         df.loc[df["rate"] > 0.05/100, "position2"] = -1
         df.loc[df["rate"] < -0.05/100, "position2"] = 1

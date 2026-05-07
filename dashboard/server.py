@@ -23,11 +23,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.data.exchange.binance_spot import BinanceSpotAdapter
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.data.ws_subscriber import WsSubscriber
-from core.data.exchange.binance_spot import BinanceSpotAdapter
 from core.db.migration_runner import MigrationRunner
 from core.execution.paper_engine import PaperMatchingEngine
 
@@ -134,7 +134,7 @@ class LiveDataFeeder:
                 fills = self._engine.check_pending_orders(now_ms)
                 if fills:
                     print(f"  [引擎] {len(fills)} 笔新成交!")
-            except Exception as e:
+            except Exception:
                 pass
             await asyncio.sleep(2)
 

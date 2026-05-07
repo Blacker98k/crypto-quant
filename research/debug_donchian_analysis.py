@@ -1,10 +1,12 @@
 """验证修正后的 Donchian 策略——滞后 1 根 K 线"""
 import sqlite3
 from pathlib import Path
+
 import pandas as pd
+
+from core.data.feed import ResearchFeed
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
-from core.data.feed import ResearchFeed
 from core.db.migration_runner import MigrationRunner
 from core.strategy.indicators import compute_atr, compute_donchian, compute_sma
 
@@ -32,7 +34,7 @@ donchian_lower_lag1 = donchian["lower"].shift(1)  # 上一根的 Donchian 下轨
 breakout_upper = close > donchian_upper_lag1
 breakout_lower = close < donchian_lower_lag1
 
-print(f"=== 修正方案: Donchian 滞后 1 根 ===")
+print("=== 修正方案: Donchian 滞后 1 根 ===")
 print(f"  总 K 线: {len(df)}")
 print(f"  多头突破（close > 前根上轨）: {breakout_upper.sum()} 次 ({breakout_upper.mean()*100:.1f}%)")
 print(f"  空头突破（close < 前根下轨）: {breakout_lower.sum()} 次 ({breakout_lower.mean()*100:.1f}%)")
@@ -74,7 +76,7 @@ sig_short = (
     vol_ok
 )
 
-print(f"\n=== 完整组合: 趋势 + 突破(滞后1) + ATR + 量 ===")
+print("\n=== 完整组合: 趋势 + 突破(滞后1) + ATR + 量 ===")
 print(f"  多头信号: {sig_long.sum()} 次 ({sig_long.mean()*100:.1f}%)")
 print(f"  空头信号: {sig_short.sum()} 次 ({sig_short.mean()*100:.1f}%)")
 print(f"  总计: {(sig_long | sig_short).sum()} 次")
@@ -82,20 +84,20 @@ print(f"  总计: {(sig_long | sig_short).sum()} 次")
 # 看看信号出现在什么时候
 if sig_long.any():
     long_dates = df.index[sig_long]
-    print(f"\n  多头信号时间:")
+    print("\n  多头信号时间:")
     for d in long_dates[-10:]:
         print(f"    {d}")
 
 # 去掉量过滤试试（BTC 大户市场，量信号不稳定）
 sig_long_no_vol = trend_4h["bull"] & breakout_upper & atr_ok
 sig_short_no_vol = trend_4h["bear"] & breakout_lower & atr_ok
-print(f"\n=== 去掉量过滤 ===")
+print("\n=== 去掉量过滤 ===")
 print(f"  多头: {sig_long_no_vol.sum()} 次, 空头: {sig_short_no_vol.sum()} 次")
 
 # 也去掉 ATR 过滤
 sig_long_bare = trend_4h["bull"] & breakout_upper
 sig_short_bare = trend_4h["bear"] & breakout_lower
-print(f"\n=== 仅趋势 + 突破 ===")
+print("\n=== 仅趋势 + 突破 ===")
 print(f"  多头: {sig_long_bare.sum()} 次, 空头: {sig_short_bare.sum()} 次")
 
 conn.close()

@@ -16,7 +16,7 @@ for dc, grp in m20_50.groupby("donchian_period"):
     print(f"  D={dc:.0f}: Sharpe={grp.sharpe.mean():.3f} Ret={grp.return_pct.mean():.2f}% Trades={grp.trades.sum():.0f} MDD={grp.mdd_pct.mean():.2f}%")
 
 best = valid[(valid["donchian_period"]==15) & (valid["trend_ma_period"]==20) & (valid["trend_long_ma_period"]==50)]
-print(f"\n=== 最优参数 (D=15, MA20/50) ===")
+print("\n=== 最优参数 (D=15, MA20/50) ===")
 print(f"  组数: {len(best)}")
 print(f"  Avg Sharpe: {best.sharpe.mean():.3f}")
 print(f"  Avg Return: {best.return_pct.mean():.2f}%")

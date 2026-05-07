@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from typing import Any, Protocol
 
 from core.common.exceptions import (
     IdempotencyConflict,
@@ -23,6 +24,29 @@ from core.execution.order_types import CancelResult, Fill, OrderHandle, OrderInt
 _DEFAULT_TAKER_FEE = 0.0004  # 0.04%
 _DEFAULT_MAKER_FEE = 0.0002  # 0.02%
 _DEFAULT_SLIPPAGE = 0.0001   # 0.01%
+
+
+class _PaperRepoLike(Protocol):
+    def insert_order(self, row: dict[str, Any]) -> int: ...
+
+    def update_order(self, order_id: int, changes: dict[str, Any]) -> None: ...
+
+    def get_order(self, client_order_id: str) -> dict[str, Any] | None: ...
+
+    def get_open_orders(self) -> list[dict[str, Any]]: ...
+
+    def insert_fill(self, row: dict[str, Any]) -> int: ...
+
+    def get_symbol(self, symbol: str, exchange: str = "binance", stype: str = "perp") -> dict[str, Any] | None: ...
+
+    def get_symbol_by_id(self, symbol_id: int) -> dict[str, Any] | None: ...
+
+    def list_symbols(
+        self,
+        exchange: str | None = None,
+        stype: str | None = None,
+        universe: str | None = None,
+    ) -> list[dict[str, Any]]: ...
 
 
 def _make_exchange_order_id() -> str:
@@ -45,7 +69,7 @@ class PaperMatchingEngine:
 
     def __init__(
         self,
-        repo: object,  # SqliteRepo
+        repo: _PaperRepoLike,
         get_price: Callable[[str], float | None],
         *,
         taker_fee: float = _DEFAULT_TAKER_FEE,
@@ -142,9 +166,12 @@ class PaperMatchingEngine:
 
         # 止损价位方向校验
         if intent.stop_loss_price is not None:
-            if intent.side == "buy" and intent.stop_loss_price >= intent.price:
+            entry_price = intent.price
+            if entry_price is None:
+                return
+            if intent.side == "buy" and intent.stop_loss_price >= entry_price:
                 raise InvalidStopLoss("多头止损价必须 < entry 价")
-            if intent.side == "sell" and intent.stop_loss_price <= intent.price:
+            if intent.side == "sell" and intent.stop_loss_price <= entry_price:
                 raise InvalidStopLoss("空头止损价必须 > entry 价")
 
     def _check_idempotent(self, client_order_id: str) -> None:
@@ -205,8 +232,12 @@ class PaperMatchingEngine:
             "updated_at": now_ms,
         })
 
-        if price is not None and self._limit_crossed(intent.side, intent.price, price):
-            fill_price = intent.price  # 限价单以限价成交（maker）
+        limit_price = intent.price
+        if limit_price is None:
+            raise InvalidOrderIntent("limit 订单必须指定 price")
+
+        if price is not None and self._limit_crossed(intent.side, limit_price, price):
+            fill_price = limit_price  # 限价单以限价成交（maker）
             fill = self._build_fill(order_id, fill_price, intent.quantity, is_maker=True, now_ms=now_ms)
             self._repo.insert_fill(self._fill_to_row(fill))
             self._repo.update_order(order_id, {
@@ -318,12 +349,12 @@ class PaperMatchingEngine:
         internal = symbol.replace("/", "")
         row = self._repo.get_symbol(internal)
         if row is not None:
-            return row["id"]
+            return int(row["id"])
         # 回退：尝试模糊搜索
         rows = self._repo.list_symbols()
         for r in rows:
             if r["symbol"] == internal:
-                return r["id"]
+                return int(r["id"])
         raise InvalidOrderIntent(f"symbol 不在 symbols 表中: {symbol}")
 
     def _intent_to_row(self, intent: OrderIntent, now_ms: int) -> dict:
@@ -365,15 +396,10 @@ class PaperMatchingEngine:
         }
 
     @staticmethod
-    def _symbol_id_to_name(symbol_id: int, repo: object) -> str:
-        row = repo.get_order_by_id(symbol_id)
+    def _symbol_id_to_name(symbol_id: int, repo: _PaperRepoLike) -> str:
+        row = repo.get_symbol_by_id(symbol_id)
         if row is not None:
-            # 反向查 symbols 表
-            sym_row = repo._conn.execute(
-                "SELECT symbol FROM symbols WHERE id=?", (row["symbol_id"],)
-            ).fetchone()
-            if sym_row is not None:
-                return sym_row[0]
+            return str(row["symbol"])
         return "BTCUSDT"
 
 

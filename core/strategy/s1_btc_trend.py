@@ -207,7 +207,6 @@ class S1BtcEthTrend(Strategy):
         else:
             # ── 有持仓 → 检查出场条件 + 更新跟踪止损 ──
             # 跟踪止损：max(原止损, 入场价 - 1.5×ATR) 多头
-            entry_price_val = ctx.kv_get(f"{symbol}_entry_price") or current_close
             if position_side == "long":
                 new_stop = max(
                     current_stop or 0,

@@ -10,10 +10,7 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
-from core.data.exchange.binance_spot import BinanceSpotAdapter
 from core.data.exchange.binance_usdm import BinanceUsdmAdapter
-from core.data.exchange.base import Ticker24h
-
 
 STABLECOINS = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "FDUSD", "PAX", "USTC", "USDD", "FRAX"}
 EXCLUDE_SYMBOLS = {"BTCUSDT", "ETHUSDT", "BNBUSDT"}
@@ -96,7 +93,7 @@ async def main():
         return
 
     # 2. 初始化
-    print(f"\n[2/4] 初始化数据层...")
+    print("\n[2/4] 初始化数据层...")
     from core.data.parquet_io import ParquetIO
     from core.data.sqlite_repo import SqliteRepo
     from core.db.migration_runner import MigrationRunner
@@ -106,7 +103,7 @@ async def main():
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     MigrationRunner(migrations_dir=Path("migrations")).apply_all(conn)
-    repo = SqliteRepo(conn)
+    SqliteRepo(conn)
     parquet_io = ParquetIO(data_root="data")
 
     # 3. 回填
@@ -127,7 +124,7 @@ async def main():
     await ex.close()
     conn.close()
 
-    print(f"\n[4/4] 完成!")
+    print("\n[4/4] 完成!")
     print(f"  回填: {completed}/{len(symbols) * len(TIMEFRAMES)} 个 (symbol, tf) 对")
     print(f"  总 K 线: {total_bars} 根")
 

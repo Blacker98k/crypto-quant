@@ -15,7 +15,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
@@ -132,7 +131,6 @@ def compute_signals_v2(
     in_short = False
 
     for i in range(1, n):
-        idx = close.index[i]
         if not in_long and not in_short:
             # 无持仓 → 检查入场
             if entry_long_raw.iloc[i]:
@@ -163,7 +161,7 @@ def compute_signals_v2(
 
 def run_backtest_v2() -> None:
     print("=" * 60)
-    print(f"  S1 BTC/ETH 趋势跟随回测 v2")
+    print("  S1 BTC/ETH 趋势跟随回测 v2")
     print(f"  标的: {SYMBOL} {ENTRY_TF}")
     print(f"  参数: Donchian={DONCHIAN_PERIOD}, ATR={ATR_PERIOD}, Trail={TRAIL_STOP_ATR_MULT}x")
     print("=" * 60)
@@ -240,7 +238,7 @@ def run_backtest_v2() -> None:
         if len(losses) > 0:
             print(f"  平均亏损: ${losses['PnL'].mean():.2f}")
 
-        print(f"\n  最近 10 笔:")
+        print("\n  最近 10 笔:")
         print(trades_df.tail(10).to_string(index=False))
 
     # HTML 报告

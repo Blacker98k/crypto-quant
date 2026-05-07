@@ -23,10 +23,7 @@
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
-
-import pandas as pd
 
 from core.strategy.base import DataRequirement, Signal, Strategy, StrategyContext
 from core.strategy.indicators import bars_to_df
@@ -101,8 +98,6 @@ class S3PairTrading(Strategy):
         zscore = (ratio - ratio_mean) / ratio_std
 
         current_zscore = zscore.iloc[-1]
-        prev_zscore = zscore.iloc[-2] if len(zscore) >= 2 else current_zscore
-
         # 检查当前持仓状态
         position = ctx.kv_get("s3_pair_position")
 

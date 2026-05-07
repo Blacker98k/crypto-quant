@@ -22,19 +22,20 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from core.data.exchange.binance_spot import BinanceSpotAdapter
+from core.data.feed import LiveFeed
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.data.ws_subscriber import WsSubscriber
-from core.data.exchange.binance_spot import BinanceSpotAdapter
 from core.db.migration_runner import MigrationRunner
-from core.data.feed import LiveFeed
-from core.execution.paper_engine import PaperMatchingEngine
 from core.execution.order_types import OrderIntent
-
+from core.execution.paper_engine import PaperMatchingEngine
 from core.strategy import (
-    S1BtcEthTrend, S2AltcoinReversal,
-    Strategy, StrategyContext,
+    S1BtcEthTrend,
+    S2AltcoinReversal,
+    Strategy,
+    StrategyContext,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -75,6 +76,8 @@ class PaperRunner:
         # WS
         self._ws: WsSubscriber | None = None
         self._exchange: BinanceSpotAdapter | None = None
+        self._exchange_task: asyncio.Task | None = None
+        self._bar_tasks: set[asyncio.Task] = set()
 
         # 策略
         self._strategies: list[tuple[Strategy, str, str]] = [
@@ -112,7 +115,7 @@ class PaperRunner:
         log.info("=" * 50)
         log.info("  Paper 交易模式启动")
         log.info(f"  初始资金: ${_INITIAL_CASH:.0f}")
-        log.info(f"  策略: S1 (BTC/ETH 趋势), S2 (均值回归)")
+        log.info("  策略: S1 (BTC/ETH 趋势), S2 (均值回归)")
         log.info("=" * 50)
 
         self._running = True
@@ -130,7 +133,7 @@ class PaperRunner:
         log.info("WS 已连接，策略监控中...")
 
         # 后台加载交易所
-        asyncio.create_task(self._lazy_load_exchange())
+        self._exchange_task = asyncio.create_task(self._lazy_load_exchange())
 
         # 主循环
         await self._main_loop()
@@ -138,7 +141,9 @@ class PaperRunner:
     def _make_on_bar(self, symbol: str):
         """为每个标的创建闭包回调。"""
         def on_bar(bar):
-            asyncio.create_task(self._on_bar_closed(symbol, bar))
+            task = asyncio.create_task(self._on_bar_closed(symbol, bar))
+            self._bar_tasks.add(task)
+            task.add_done_callback(self._bar_tasks.discard)
         return on_bar
 
     async def _on_bar_closed(self, symbol: str, bar) -> None:
@@ -153,11 +158,8 @@ class PaperRunner:
             repo=self._repo,
             strategy_name="S1_btc_eth_trend",
         )
-        # 覆写 now_ms
-        ctx.now_ms = lambda: int(time.time() * 1000)  # type: ignore
-
         # 对每个策略运行 on_bar
-        for strategy, sym, tf in self._strategies:
+        for strategy, sym, _tf in self._strategies:
             if sym != symbol:
                 continue
 
