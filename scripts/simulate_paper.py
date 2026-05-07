@@ -31,6 +31,7 @@ from core.execution.simulation import (
     SyntheticBarSpec,
     generate_synthetic_bars,
 )
+from core.monitor.simulation_report import SimulationReportWriter
 from core.strategy import DataRequirement, Signal, Strategy
 
 _DEFAULT_DB_PATH = Path("data/simulated_paper.sqlite")
@@ -86,6 +87,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--keep-db", action="store_true")
     parser.add_argument("--cycles", type=int, default=1)
     parser.add_argument("--interval-sec", type=float, default=0.0)
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Optional JSONL path for durable per-cycle simulation reports.",
+    )
     return parser.parse_args()
 
 
@@ -189,12 +196,19 @@ async def main() -> None:
         raise SystemExit("--interval-sec must be >= 0")
 
     all_passed = True
-    for cycle in range(1, args.cycles + 1):
-        payload = await _run_cycle(args, cycle)
-        all_passed = all_passed and bool(payload["passed"])
-        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-        if cycle < args.cycles and args.interval_sec:
-            await asyncio.sleep(args.interval_sec)
+    writer = SimulationReportWriter(args.report) if args.report is not None else None
+    try:
+        for cycle in range(1, args.cycles + 1):
+            payload = await _run_cycle(args, cycle)
+            all_passed = all_passed and bool(payload["passed"])
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            if writer is not None:
+                writer.write_cycle(payload)
+            if cycle < args.cycles and args.interval_sec:
+                await asyncio.sleep(args.interval_sec)
+    finally:
+        if writer is not None:
+            writer.close()
 
     if not all_passed:
         raise SystemExit(1)
