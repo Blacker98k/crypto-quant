@@ -50,9 +50,9 @@ Thumbs.db
 # ── 运行时数据（**敏感：维护者确认范围**） ───────────────────
 # 量化系统的本地数据 / 数据库 / 报告产物
 # 若将来需要把"示例数据"放入仓库，单独建 data_examples/ 并显式 add
-data/
-reports/
-logs/
+/data/
+/reports/
+/logs/
 *.log
 *.pid
 
