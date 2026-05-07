@@ -195,6 +195,50 @@ def test_summarize_simulation_report_cli_outputs_json(tmp_path: Path) -> None:
     }
 
 
+def test_summarize_simulation_report_cli_enforces_health_thresholds(tmp_path: Path) -> None:
+    report_path = tmp_path / "sim.jsonl"
+    rows = [
+        {
+            "cycle": 1,
+            "symbol": "BTCUSDT",
+            "price_source": "static",
+            "passed": True,
+            "result": {"bars": 2, "orders": 2},
+        },
+        {
+            "cycle": 2,
+            "symbol": "BTCUSDT",
+            "price_source": "static",
+            "passed": False,
+            "result": {"bars": 2, "orders": 0},
+        },
+    ]
+    report_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/summarize_simulation_report.py",
+            str(report_path),
+            "--min-pass-rate",
+            "1.0",
+            "--require-price-source",
+            "binance_usdm_public_ticker",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["pass_rate"] == 0.5
+    assert "pass_rate 0.5 below required 1.0" in result.stderr
+    assert "missing required price source: binance_usdm_public_ticker" in result.stderr
+
+
 def test_simulate_paper_cli_writes_summary(tmp_path: Path) -> None:
     db_path = tmp_path / "sim.sqlite"
     summary_path = tmp_path / "reports" / "summary.json"

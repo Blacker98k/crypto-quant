@@ -16,6 +16,18 @@ if str(_PROJECT_ROOT) not in sys.path:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", type=Path)
+    parser.add_argument(
+        "--min-pass-rate",
+        type=float,
+        default=None,
+        help="Exit non-zero when the report pass rate is below this threshold.",
+    )
+    parser.add_argument(
+        "--require-price-source",
+        action="append",
+        default=[],
+        help="Exit non-zero unless the summary includes this price source. Repeatable.",
+    )
     return parser.parse_args()
 
 
@@ -23,7 +35,26 @@ def main() -> None:
     from core.monitor.simulation_report import summarize_simulation_report
 
     args = _parse_args()
-    print(json.dumps(summarize_simulation_report(args.report), ensure_ascii=False, sort_keys=True))
+    summary = summarize_simulation_report(args.report)
+    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+
+    failed = False
+    pass_rate = float(summary.get("pass_rate") or 0)
+    if args.min_pass_rate is not None and pass_rate < args.min_pass_rate:
+        print(
+            f"pass_rate {pass_rate} below required {args.min_pass_rate}",
+            file=sys.stderr,
+        )
+        failed = True
+
+    price_sources = {str(source) for source in summary.get("price_sources", [])}
+    for required in args.require_price_source:
+        if required not in price_sources:
+            print(f"missing required price source: {required}", file=sys.stderr)
+            failed = True
+
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
