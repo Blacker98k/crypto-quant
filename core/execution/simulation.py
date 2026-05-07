@@ -12,7 +12,7 @@ from core.data.feed import LiveFeed
 from core.data.memory_cache import MemoryCache
 from core.execution.order_types import OrderIntent
 from core.execution.paper_engine import PaperMatchingEngine
-from core.risk import L1OrderRiskValidator, StrategySignalValidator
+from core.risk import L1OrderRiskValidator, L2PositionRiskSizer, StrategySignalValidator
 from core.strategy.base import Strategy, StrategyContext
 
 
@@ -113,6 +113,7 @@ class SimulatedPaperSession:
         self._feed = LiveFeed(cast(Any, _NoopParquetIO()), repo, self._cache)
         self._engine = PaperMatchingEngine(repo, get_price=lambda symbol: self._cache.latest_price(symbol))
         self._risk = L1OrderRiskValidator()
+        self._position_risk = L2PositionRiskSizer()
         self._signal_validator = StrategySignalValidator()
 
     def run(self, bars: list[Bar]) -> SimulationResult:
@@ -178,6 +179,22 @@ class SimulatedPaperSession:
                         client_order_id=cid,
                         purpose="entry",
                     )
+                    position_decision = self._position_risk.size(intent, reference_price=bar.c)
+                    if not position_decision.accepted:
+                        rejected += 1
+                        risk_events += self._record_rejection(
+                            event_type="order_rejected",
+                            source="L2",
+                            reason=position_decision.reason,
+                            strategy=strategy.name,
+                            signal_side=signal.side,
+                            symbol=signal.symbol,
+                            client_order_id=cid,
+                            captured_at=bar.ts,
+                        )
+                        continue
+                    intent.quantity = position_decision.quantity
+
                     decision = self._risk.validate(
                         intent,
                         symbol_info=self._repo.get_symbol(bar.symbol) or {},
