@@ -10,6 +10,7 @@ PaperMatchingEngine 基于真实行情做模拟成交。
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 import sys
 import time
@@ -113,7 +114,7 @@ class LiveDataFeeder:
         await self._ws.connect(proxy=self._proxy)
         print(f"  [LiveFeed] WS 已连接，订阅: {', '.join(_SYMBOLS)} 1m")
 
-        # 后台加载 exchange（不影响启动）
+        # 后台加载 exchange（不录响启动）
         self._exchange_task = asyncio.create_task(self._lazy_load_exchange())
 
         # 启动定时检查引擎
@@ -150,7 +151,7 @@ class LiveDataFeeder:
         print("  [LiveFeed] 已停止")
 
 
-# ─── create_app ────────────────────────────────────────────────────────────────
+# ─── create_app ──────────────────────────────────────────────────────────────
 
 
 def create_app(
@@ -178,6 +179,7 @@ def create_app(
         orders = repo.get_open_orders()
         positions = _compute_positions(repo, cache)
         port_val = _portfolio_value(app.state.usdt_balance, positions, cache)
+        risk_counts = _risk_event_counts(repo)
         return {
             "mode": "live_paper",
             "ws_connected": feeder._ws._running if feeder._ws else False,
@@ -186,6 +188,8 @@ def create_app(
             "usdt_balance": round(app.state.usdt_balance, 2),
             "open_positions_n": len(positions),
             "open_orders_n": len(orders),
+            "risk_events_n": risk_counts["total"],
+            "critical_risk_events_n": risk_counts["critical"],
             "day_pnl": _pnl_in_window(repo, _start_of_day_ts()),
             "week_pnl": _pnl_in_window(repo, _start_of_day_ts() - 7 * 86400_000),
             "latest_prices": prices,
@@ -258,6 +262,11 @@ def create_app(
         hist = app.state.balance_history
         return hist[-limit:] if len(hist) > limit else hist
 
+    @app.get("/api/risk_events")
+    def api_risk_events(limit: int = 50, since_ms: int | None = None):
+        rows = repo.get_recent_risk_events(limit=max(1, min(limit, 500)), since_ms=since_ms)
+        return [_risk_event_row(row) for row in rows]
+
     # ─── WebSocket ─────────────────────────────────────────────────────────
 
     @app.websocket("/ws")
@@ -299,7 +308,7 @@ def create_app(
         except WebSocketDisconnect:
             pass
 
-    # ─── 静态文件 ──────────────────────────────────────────────────────────
+    # ─── 静态文件 ─────────────────────────────────────────────────────────
 
     @app.get("/")
     def index():
@@ -323,6 +332,33 @@ def _order_row(r) -> dict:
         "purpose": r["purpose"], "strategy": r["strategy_version"],
         "placed_at": r["placed_at"],
     }
+
+
+def _risk_event_row(r) -> dict:
+    payload = r["payload"]
+    if isinstance(payload, str) and payload:
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {"raw": payload}
+    return {
+        "id": r["id"],
+        "type": r["type"],
+        "severity": r["severity"],
+        "source": r["source"],
+        "related_id": r["related_id"],
+        "payload": payload,
+        "captured_at": r["captured_at"],
+    }
+
+
+def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
+    row = repo._conn.execute(
+        "SELECT COUNT(*) AS total, "
+        "SUM(CASE WHEN severity='critical' THEN 1 ELSE 0 END) AS critical "
+        "FROM risk_events"
+    ).fetchone()
+    return {"total": int(row["total"] or 0), "critical": int(row["critical"] or 0)}
 
 
 def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
@@ -357,7 +393,7 @@ def _portfolio_value(usdt_balance: float, positions: list[dict], cache: MemoryCa
     return round(total, 2)
 
 
-# ─── main ──────────────────────────────────────────────────────────────────────
+# ─── main ───────────────────────────────────────────────────────────────────
 
 
 def main() -> None:
@@ -383,7 +419,7 @@ def main() -> None:
     parquet_io = ParquetIO(data_root=data_root)
     cache = MemoryCache(max_bars=1000)
 
-    # 2. 插入 symbol 数据（幂等）
+    # 2. 插入 symbol 数据（幂笙）
     for sym, base, quote, stype in [
         ("BTCUSDT", "BTC", "USDT", "perp"),
         ("ETHUSDT", "ETH", "USDT", "perp"),
