@@ -31,6 +31,7 @@ from core.data.sqlite_repo import SqliteRepo
 from core.data.ws_subscriber import WsSubscriber
 from core.db.migration_runner import MigrationRunner
 from core.execution.paper_engine import PaperMatchingEngine
+from core.monitor.paper_metrics import paper_metrics
 
 # 代理配置（根据环境变量或写死）
 _PROXY = "http://127.0.0.1:57777"
@@ -266,6 +267,12 @@ def create_app(
     def api_risk_events(limit: int = 50, since_ms: int | None = None):
         rows = repo.get_recent_risk_events(limit=max(1, min(limit, 500)), since_ms=since_ms)
         return [_risk_event_row(row) for row in rows]
+
+    @app.get("/api/paper_metrics")
+    def api_paper_metrics(since_ms: int | None = None, until_ms: int | None = None):
+        start_ms = _start_of_day_ts() if since_ms is None else since_ms
+        end_ms = int(time.time() * 1000) + 1 if until_ms is None else until_ms
+        return paper_metrics(repo._conn, since_ms=start_ms, until_ms=end_ms)
 
     # ─── WebSocket ─────────────────────────────────────────────────────────
 

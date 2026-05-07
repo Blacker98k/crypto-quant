@@ -176,7 +176,7 @@ async def _run_cycle(args: argparse.Namespace, cycle: int) -> dict[str, Any]:
     try:
         _seed_symbol(repo, args.symbol)
         strategy = PulseStrategy(args.symbol, close_at_ms=bars[-1].ts)
-        result = SimulatedPaperSession(repo, [strateg]).run(bars)
+        result = SimulatedPaperSession(repo, [strategy]).run(bars)
     finally:
         repo.close()
 
