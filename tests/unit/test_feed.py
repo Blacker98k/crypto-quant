@@ -97,6 +97,30 @@ class TestLiveFeed:
         feed.unsubscribe(handle)
         assert "BTCUSDT:candles:1h" not in feed._subscriptions
 
+    def test_subscribe_candles_registers_handle_and_delegates_to_ws(self, parquet_io, sqlite_repo):
+        class FakeWsSubscriber:
+            def __init__(self):
+                self.calls = []
+
+            def subscribe_candles(self, symbol, timeframe, callback):
+                self.calls.append((symbol, timeframe, callback))
+
+        ws = FakeWsSubscriber()
+
+        def callback(bar):
+            return None
+
+        feed = LiveFeed(parquet_io, sqlite_repo, memory_cache=None, ws_subscriber=ws)
+
+        handle = feed.subscribe_candles("btcusdt", "1m", callback)
+
+        assert handle.symbol == "BTCUSDT"
+        assert handle.stream == "candles"
+        assert handle.timeframe == "1m"
+        assert handle.state == "active"
+        assert ws.calls == [("BTCUSDT", "1m", callback)]
+        assert feed._subscriptions[handle.id] is handle
+
 
 class TestSubscriptionHandle:
     """SubscriptionHandle 测试。"""

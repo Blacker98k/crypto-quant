@@ -10,6 +10,7 @@ from core.common.exceptions import InvalidQueryError
 from core.data.exchange.base import Bar, FundingRate
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
+from core.data.symbol import normalize_symbol
 
 
 @dataclass(slots=True)
@@ -47,6 +48,12 @@ class DataFeed(Protocol):
     ) -> list[Bar]: ...
 
     def get_last_price(self, symbol: str) -> float: ...
+
+
+class _WsSubscriberLike(Protocol):
+    def subscribe_candles(
+        self, symbol: str, timeframe: str, callback: Callable[[Bar], None]
+    ) -> None: ...
 
 
 class ResearchFeed:
@@ -96,9 +103,16 @@ class ResearchFeed:
 class LiveFeed(ResearchFeed):
     """实时/paper 模式：优先读内存缓存，缺失时回退 Parquet。"""
 
-    def __init__(self, parquet_io: ParquetIO, repo: object, memory_cache: MemoryCache | None) -> None:
+    def __init__(
+        self,
+        parquet_io: ParquetIO,
+        repo: object,
+        memory_cache: MemoryCache | None,
+        ws_subscriber: _WsSubscriberLike | None = None,
+    ) -> None:
         super().__init__(parquet_io, repo)
         self._cache = memory_cache
+        self._ws_subscriber = ws_subscriber
         self._subscriptions: dict[str, SubscriptionHandle] = {}
 
     def get_candles(
@@ -123,11 +137,32 @@ class LiveFeed(ResearchFeed):
                 return price
         return super().get_last_price(symbol)
 
+    def subscribe_candles(
+        self, symbol: str, timeframe: str, callback: Callable[[Bar], None]
+    ) -> SubscriptionHandle:
+        normalized = normalize_symbol(symbol)
+        handle = SubscriptionHandle(
+            id=self._subscription_id(normalized, "candles", timeframe),
+            symbol=normalized,
+            stream="candles",
+            timeframe=timeframe,
+            state="active",
+            callback=callback,
+        )
+        self._subscriptions[handle.id] = handle
+        if self._ws_subscriber is not None:
+            self._ws_subscriber.subscribe_candles(normalized, timeframe, callback)
+        return handle
+
     def unsubscribe(self, handle: SubscriptionHandle) -> None:
         """移除订阅句柄。"""
         for key, existing in list(self._subscriptions.items()):
             if existing.id == handle.id:
                 del self._subscriptions[key]
+
+    def _subscription_id(self, symbol: str, stream: str, timeframe: str | None = None) -> str:
+        suffix = f":{timeframe}" if timeframe else ""
+        return f"{symbol}:{stream}{suffix}:{len(self._subscriptions) + 1}"
 
 
 __all__ = ["DataFeed", "LiveFeed", "ResearchFeed", "SubscriptionHandle", "Tick"]
