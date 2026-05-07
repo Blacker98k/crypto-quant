@@ -175,6 +175,72 @@ class TestMarketOrder:
         assert handle.status == "accepted"
 
 
+class TestPositionAccounting:
+    def _open_positions(self, sqlite_repo):
+        rows = sqlite_repo._conn.execute(
+            "SELECT * FROM positions WHERE closed_at IS NULL ORDER BY id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def test_market_buy_opens_long_position(self, sqlite_repo):
+        engine = _make_engine(sqlite_repo, price=50000.0)
+        now = 1_700_000_000_000
+
+        engine.place_order(_intent(client_order_id="pos-long", side="buy", quantity=0.2), now)
+
+        positions = self._open_positions(sqlite_repo)
+        assert len(positions) == 1
+        assert positions[0]["side"] == "long"
+        assert positions[0]["qty"] == pytest.approx(0.2)
+        assert positions[0]["avg_entry_price"] == pytest.approx(50005.0)
+
+    def test_same_side_fill_adds_to_position_with_weighted_average(self, sqlite_repo):
+        now = 1_700_000_000_000
+        _make_engine(sqlite_repo, price=50000.0).place_order(
+            _intent(client_order_id="pos-add-1", side="buy", quantity=0.2),
+            now,
+        )
+        _make_engine(sqlite_repo, price=51000.0).place_order(
+            _intent(client_order_id="pos-add-2", side="buy", quantity=0.3),
+            now + 1,
+        )
+
+        position = self._open_positions(sqlite_repo)[0]
+        expected_avg = ((0.2 * 50005.0) + (0.3 * 51005.1)) / 0.5
+        assert position["qty"] == pytest.approx(0.5)
+        assert position["avg_entry_price"] == pytest.approx(expected_avg)
+
+    def test_opposite_side_fill_closes_position(self, sqlite_repo):
+        now = 1_700_000_000_000
+        _make_engine(sqlite_repo, price=50000.0).place_order(
+            _intent(client_order_id="pos-close-1", side="buy", quantity=0.2),
+            now,
+        )
+        _make_engine(sqlite_repo, price=50500.0).place_order(
+            _intent(client_order_id="pos-close-2", side="sell", quantity=0.2),
+            now + 1,
+        )
+
+        assert self._open_positions(sqlite_repo) == []
+
+    def test_opposite_side_fill_flips_position_for_excess_quantity(self, sqlite_repo):
+        now = 1_700_000_000_000
+        _make_engine(sqlite_repo, price=50000.0).place_order(
+            _intent(client_order_id="pos-flip-1", side="buy", quantity=0.2),
+            now,
+        )
+        _make_engine(sqlite_repo, price=49000.0).place_order(
+            _intent(client_order_id="pos-flip-2", side="sell", quantity=0.5),
+            now + 1,
+        )
+
+        positions = self._open_positions(sqlite_repo)
+        assert len(positions) == 1
+        assert positions[0]["side"] == "short"
+        assert positions[0]["qty"] == pytest.approx(0.3)
+        assert positions[0]["avg_entry_price"] == pytest.approx(48995.1)
+
+
 # ─── 限价单撮合 ────────────────────────────────────────────────────────────────
 
 

@@ -210,6 +210,34 @@ class SqliteRepo:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_open_position(self, symbol_id: int, strategy_version: str) -> dict[str, Any] | None:
+        """读取某 symbol/strategy_version 的未平仓持仓。"""
+        row = self._conn.execute(
+            "SELECT * FROM positions WHERE symbol_id=? AND strategy_version=? "
+            "AND closed_at IS NULL ORDER BY opened_at DESC, id DESC LIMIT 1",
+            (symbol_id, strategy_version),
+        ).fetchone()
+        return self._to_dict(row)
+
+    def insert_position(self, row: dict[str, Any]) -> int:
+        """插入 positions 行。"""
+        keys = list(row)
+        placeholders = ", ".join("?" for _ in keys)
+        cur = self._conn.execute(
+            f"INSERT INTO positions ({', '.join(keys)}) VALUES ({placeholders})",
+            [row[k] for k in keys],
+        )
+        self._conn.commit()
+        return self._lastrowid(cur)
+
+    def update_position(self, position_id: int, changes: dict[str, Any]) -> None:
+        """更新 positions 行。"""
+        sets = ", ".join(f"{key}=?" for key in changes)
+        self._conn.execute(
+            f"UPDATE positions SET {sets} WHERE id=?", [*changes.values(), position_id]
+        )
+        self._conn.commit()
+
     @staticmethod
     def _to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
         return None if row is None else dict(row)

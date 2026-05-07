@@ -37,9 +37,17 @@ class _PaperRepoLike(Protocol):
 
     def insert_fill(self, row: dict[str, Any]) -> int: ...
 
+    def get_fills(self, order_id: int) -> list[dict[str, Any]]: ...
+
     def get_symbol(self, symbol: str, exchange: str = "binance", stype: str = "perp") -> dict[str, Any] | None: ...
 
     def get_symbol_by_id(self, symbol_id: int) -> dict[str, Any] | None: ...
+
+    def get_open_position(self, symbol_id: int, strategy_version: str) -> dict[str, Any] | None: ...
+
+    def insert_position(self, row: dict[str, Any]) -> int: ...
+
+    def update_position(self, position_id: int, changes: dict[str, Any]) -> None: ...
 
     def list_symbols(
         self,
@@ -204,8 +212,7 @@ class PaperMatchingEngine:
 
         fill_price = self._apply_slippage(price, intent.side)
         fill = self._build_fill(order_id, fill_price, intent.quantity, is_maker=False, now_ms=now_ms)
-        fill_id = self._repo.insert_fill(self._fill_to_row(fill))
-        fill.id = fill_id
+        self._record_fill(fill, intent, now_ms)
         exchange_id = _make_exchange_order_id()
 
         self._repo.update_order(order_id, {
@@ -240,7 +247,7 @@ class PaperMatchingEngine:
         if price is not None and self._limit_crossed(intent.side, limit_price, price):
             fill_price = limit_price  # 限价单以限价成交（maker）
             fill = self._build_fill(order_id, fill_price, intent.quantity, is_maker=True, now_ms=now_ms)
-            self._repo.insert_fill(self._fill_to_row(fill))
+            self._record_fill(fill, intent, now_ms)
             self._repo.update_order(order_id, {
                 "status": "filled",
                 "filled_qty": intent.quantity,
@@ -285,7 +292,8 @@ class PaperMatchingEngine:
         if not self._limit_crossed(side, limit_price, price):
             return None
         fill = self._build_fill(row["id"], limit_price, row["quantity"], is_maker=True, now_ms=now_ms)
-        self._repo.insert_fill(self._fill_to_row(fill))
+        intent = self._row_to_intent(row)
+        self._record_fill(fill, intent, now_ms)
         self._repo.update_order(row["id"], {
             "status": "filled",
             "filled_qty": row["quantity"],
@@ -306,7 +314,8 @@ class PaperMatchingEngine:
         # 止损单触发后以市价成交（taker）
         fill_price = self._apply_slippage(price, side)
         fill = self._build_fill(row["id"], fill_price, row["quantity"], is_maker=False, now_ms=now_ms)
-        self._repo.insert_fill(self._fill_to_row(fill))
+        intent = self._row_to_intent(row)
+        self._record_fill(fill, intent, now_ms)
         self._repo.update_order(row["id"], {
             "status": "filled",
             "filled_qty": row["quantity"],
@@ -343,6 +352,145 @@ class PaperMatchingEngine:
             is_maker=is_maker,
             ts=now_ms,
         )
+
+    def _record_fill(self, fill: Fill, intent: OrderIntent, now_ms: int) -> None:
+        fill.id = self._repo.insert_fill(self._fill_to_row(fill))
+        if intent.purpose not in ("entry", "exit") or fill.quantity <= 0:
+            return
+        symbol_id = self._resolve_symbol_id(intent.symbol)
+        self._apply_position_fill(
+            symbol_id=symbol_id,
+            strategy=intent.strategy,
+            strategy_version=intent.strategy_version,
+            trade_group_id=intent.trade_group_id,
+            side="long" if intent.side == "buy" else "short",
+            qty=fill.quantity,
+            price=fill.price,
+            signal_id=intent.signal_id if intent.signal_id > 0 else None,
+            now_ms=now_ms,
+        )
+
+    def _apply_position_fill(
+        self,
+        *,
+        symbol_id: int,
+        strategy: str,
+        strategy_version: str,
+        trade_group_id: str | None,
+        side: str,
+        qty: float,
+        price: float,
+        signal_id: int | None,
+        now_ms: int,
+    ) -> None:
+        current = self._repo.get_open_position(symbol_id, strategy_version)
+        if current is None:
+            self._open_position(
+                symbol_id=symbol_id,
+                strategy=strategy,
+                strategy_version=strategy_version,
+                signal_id=signal_id,
+                side=side,
+                qty=qty,
+                price=price,
+                trade_group_id=trade_group_id,
+                now_ms=now_ms,
+            )
+            return
+
+        if current["side"] == side:
+            old_qty = float(current["qty"])
+            new_qty = old_qty + qty
+            avg_price = ((old_qty * float(current["avg_entry_price"])) + (qty * price)) / new_qty
+            self._repo.update_position(
+                int(current["id"]),
+                {
+                    "qty": new_qty,
+                    "avg_entry_price": avg_price,
+                    "current_price": price,
+                    "unrealized_pnl": 0.0,
+                },
+            )
+            return
+
+        old_qty = float(current["qty"])
+        if qty < old_qty:
+            self._repo.update_position(
+                int(current["id"]),
+                {
+                    "qty": old_qty - qty,
+                    "current_price": price,
+                    "realized_pnl": self._realized_pnl(current, qty, price),
+                },
+            )
+            return
+
+        self._repo.update_position(
+            int(current["id"]),
+            {
+                "qty": 0.0,
+                "current_price": price,
+                "realized_pnl": self._realized_pnl(current, old_qty, price),
+                "closed_at": now_ms,
+            },
+        )
+        excess = qty - old_qty
+        if excess > 0:
+            self._open_position(
+                symbol_id=symbol_id,
+                strategy=strategy,
+                strategy_version=strategy_version,
+                signal_id=signal_id,
+                side=side,
+                qty=excess,
+                price=price,
+                trade_group_id=trade_group_id,
+                now_ms=now_ms,
+            )
+
+    def _open_position(
+        self,
+        *,
+        symbol_id: int,
+        strategy: str,
+        strategy_version: str,
+        signal_id: int | None,
+        side: str,
+        qty: float,
+        price: float,
+        trade_group_id: str | None,
+        now_ms: int,
+    ) -> None:
+        self._repo.insert_position(
+            {
+                "symbol_id": symbol_id,
+                "strategy": strategy,
+                "strategy_version": strategy_version,
+                "opening_signal_id": signal_id,
+                "side": side,
+                "qty": qty,
+                "avg_entry_price": price,
+                "current_price": price,
+                "unrealized_pnl": 0.0,
+                "realized_pnl": 0.0,
+                "leverage": 1.0,
+                "margin": None,
+                "liq_price": None,
+                "stop_order_id": None,
+                "trade_group_id": trade_group_id,
+                "opened_at": now_ms,
+                "closed_at": None,
+            }
+        )
+
+    @staticmethod
+    def _realized_pnl(position: dict[str, Any], qty: float, exit_price: float) -> float:
+        entry = float(position["avg_entry_price"])
+        if position["side"] == "long":
+            pnl = (exit_price - entry) * qty
+        else:
+            pnl = (entry - exit_price) * qty
+        return float(position.get("realized_pnl") or 0.0) + pnl
 
     def _resolve_symbol_id(self, symbol: str) -> int:
         """从 symbols 表解析 symbol 文本 → symbol_id。"""
@@ -381,6 +529,25 @@ class PaperMatchingEngine:
             "placed_at": now_ms,
             "updated_at": now_ms,
         }
+
+    def _row_to_intent(self, row: dict[str, Any]) -> OrderIntent:
+        symbol = self._symbol_id_to_name(int(row["symbol_id"]), self._repo)
+        return OrderIntent(
+            signal_id=int(row["signal_id"] or 0),
+            strategy="paper",
+            strategy_version=str(row["strategy_version"]),
+            trade_group_id=row["trade_group_id"],
+            symbol=symbol,
+            side=row["side"],
+            order_type=row["type"],
+            quantity=float(row["quantity"]),
+            price=row["price"],
+            stop_price=row["stop_price"],
+            time_in_force=row["time_in_force"],
+            reduce_only=bool(row["reduce_only"]),
+            purpose=row["purpose"],
+            client_order_id=row["client_order_id"],
+        )
 
     @staticmethod
     def _fill_to_row(fill: Fill) -> dict:
