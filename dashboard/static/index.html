@@ -32,7 +32,7 @@
   th { text-align:left;padding:6px 8px;color:#6b7280;font-weight:600;font-size:11px;border-bottom:2px solid #e5e7eb;white-space:nowrap }
   td { padding:5px 8px;border-bottom:1px solid #f3f4f6;white-space:nowrap }
   tr:nth-child(odd) td { background:#fafafa }
-  .card { background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.1);padding:16px }
+  .card { background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.1);padding:16px }
   .text-right { text-align:right }
   .text-mono { font-variant-numeric:tabular-nums }
 </style>
@@ -79,6 +79,44 @@
   </div>
 
   <!-- 价格卡片 -->
+  <div class="card">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div>
+        <div class="text-sm font-semibold">Paper metrics</div>
+        <div class="text-xs text-slate-500">today window · {{paperMetrics.symbols.join(', ') || 'no symbols'}}</div>
+      </div>
+      <div class="text-xs text-slate-500">fills {{paperMetrics.fills.total}} / orders {{paperMetrics.orders.total}}</div>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+      <div>
+        <span class="text-slate-500 text-xs">Filled notional</span><br>
+        <span class="text-mono font-semibold">${{fmt(paperMetrics.fills.filled_notional)}}</span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">Fees</span><br>
+        <span class="text-mono font-semibold">${{fmt(paperMetrics.fills.fees)}}</span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">Cash PnL</span><br>
+        <span class="text-mono font-semibold" :class="signClass(paperMetrics.fills.cash_pnl)">
+          {{paperMetrics.fills.cash_pnl>=0?'+':''}}${{fmt(paperMetrics.fills.cash_pnl)}}
+        </span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">Risk events</span><br>
+        <span class="text-mono font-semibold">{{paperMetrics.risk_events.total}}</span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">Open positions</span><br>
+        <span class="text-mono font-semibold">{{paperMetrics.positions.open}}</span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">Open notional</span><br>
+        <span class="text-mono font-semibold">${{fmt(paperMetrics.positions.open_notional)}}</span>
+      </div>
+    </div>
+  </div>
+
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     <div v-for="(info,sym) in prices" :key="sym" class="card">
       <div class="flex justify-between items-start">
@@ -244,6 +282,13 @@ createApp({
       mode:'paper', simulation_running:false, portfolio_value:10000, usdt_balance:10000,
       open_positions_n:0, open_orders_n:0, day_pnl:{n:0,pnl:0}, week_pnl:{n:0,pnl:0}, latest_prices:{}
     })
+    const paperMetrics = reactive({
+      symbols:[],
+      orders:{total:0,by_status:{}},
+      fills:{total:0,filled_notional:0,buy_notional:0,sell_notional:0,fees:0,cash_pnl:0},
+      risk_events:{total:0,by_severity:{}},
+      positions:{open:0,open_notional:0},
+    })
     const prices = reactive({})
     const orders = ref([])
     const fills = ref([])
@@ -280,16 +325,18 @@ createApp({
     // ── API 调用 ──
     const loadAll = async () => {
       try {
-        const [s,r1,r2,r3,r4,r5] = await Promise.all([
+        const [s,r1,r2,r3,r4,r5,r6] = await Promise.all([
           fetch(API+'/api/status').then(r=>r.json()),
           fetch(API+'/api/prices').then(r=>r.json()),
           fetch(API+'/api/orders?limit=50&status='+orderStatusFilter.value).then(r=>r.json()),
           fetch(API+'/api/fills?limit=50').then(r=>r.json()),
           fetch(API+'/api/positions').then(r=>r.json()),
           fetch(API+'/api/strategies').then(r=>r.json()),
+          fetch(API+'/api/paper_metrics').then(r=>r.json()),
         ])
         Object.assign(status, s)
         Object.keys(prices).forEach(k=>delete prices[k]); Object.assign(prices, r1)
+        Object.assign(paperMetrics, r6)
         orders.value = r2; fills.value = r3; positions.value = r4; strategies.value = r5
       } catch(e) {}
     }
@@ -426,7 +473,7 @@ createApp({
     watch(chartTF, () => loadPriceHistory())
 
     return {
-      status,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
+      status,paperMetrics,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
       chartSymbol,chartTF,strategyFilter,orderStatusFilter,toast,
       filteredOrders,
       fmt,fmtVol,tsToTime,statusLabel,signClass,
