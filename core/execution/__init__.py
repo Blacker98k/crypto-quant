@@ -20,6 +20,7 @@ from core.execution.order_types import (
     OrderIntent,
 )
 from core.execution.paper_engine import PaperMatchingEngine
+from core.execution.simulation import SimulatedPaperSession, SimulationResult
 
 __all__ = [
     "BINANCE_ERROR_TABLE",
@@ -29,6 +30,8 @@ __all__ = [
     "OrderHandle",
     "OrderIntent",
     "PaperMatchingEngine",
+    "SimulatedPaperSession",
+    "SimulationResult",
     "build_error_message",
     "is_ip_banned",
     "is_rate_limited",
