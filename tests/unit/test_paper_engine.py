@@ -240,6 +240,38 @@ class TestPositionAccounting:
         assert positions[0]["qty"] == pytest.approx(0.3)
         assert positions[0]["avg_entry_price"] == pytest.approx(48995.1)
 
+    def test_close_position_submits_opposite_market_order(self, sqlite_repo):
+        now = 1_700_000_000_000
+        engine = _make_engine(sqlite_repo, price=50000.0)
+        engine.place_order(_intent(client_order_id="close-api-open", side="buy", quantity=0.2), now)
+
+        handle = _make_engine(sqlite_repo, price=50500.0).close_position(
+            symbol="BTCUSDT",
+            strategy="s1",
+            strategy_version="dev",
+            client_order_id="close-api-exit",
+            now_ms=now + 1,
+        )
+
+        assert handle is not None
+        assert handle.status == "filled"
+        assert sqlite_repo.get_order("close-api-exit")["side"] == "sell"
+        assert self._open_positions(sqlite_repo) == []
+
+    def test_close_position_returns_none_when_no_position(self, sqlite_repo):
+        engine = _make_engine(sqlite_repo, price=50000.0)
+
+        handle = engine.close_position(
+            symbol="BTCUSDT",
+            strategy="s1",
+            strategy_version="dev",
+            client_order_id="close-none",
+            now_ms=1_700_000_000_000,
+        )
+
+        assert handle is None
+        assert sqlite_repo.get_order("close-none") is None
+
 
 # ─── 限价单撮合 ────────────────────────────────────────────────────────────────
 

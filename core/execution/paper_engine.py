@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from core.common.exceptions import (
     IdempotencyConflict,
@@ -146,6 +146,38 @@ class PaperMatchingEngine:
             if fill is not None:
                 fills.append(fill)
         return fills
+
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        strategy: str,
+        strategy_version: str,
+        client_order_id: str,
+        now_ms: int,
+    ) -> OrderHandle | None:
+        """Submit a market order that closes the open simulated position, if any."""
+        symbol_id = self._resolve_symbol_id(symbol)
+        position = self._repo.get_open_position(symbol_id, strategy_version)
+        if position is None:
+            return None
+        side: Literal["buy", "sell"] = "sell" if position["side"] == "long" else "buy"
+        return self.place_order(
+            OrderIntent(
+                signal_id=0,
+                strategy=strategy,
+                strategy_version=strategy_version,
+                trade_group_id=position["trade_group_id"],
+                symbol=symbol,
+                side=side,
+                order_type="market",
+                quantity=float(position["qty"]),
+                purpose="exit",
+                reduce_only=True,
+                client_order_id=client_order_id,
+            ),
+            now_ms,
+        )
 
     # ─── 验证 ────────────────────────────────────────────────────────────
 

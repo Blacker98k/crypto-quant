@@ -178,7 +178,7 @@ class PaperRunner:
                          f"stop={sig.stop_price:.2f}")
 
                 if sig.side == "close":
-                    self._handle_close_signal(sym, sig)
+                    self._handle_close_signal(sym, sig, strategy)
                     continue
 
                 # 下单
@@ -201,9 +201,24 @@ class PaperRunner:
                 except Exception as e:
                     log.warning(f"  -> 下单失败: {e}")
 
-    def _handle_close_signal(self, symbol: str, sig) -> None:
+    def _handle_close_signal(self, symbol: str, sig, strategy: Strategy) -> None:
         """处理平仓信号——取消所有相关订单。"""
-        pass
+        try:
+            handle = self._engine.close_position(
+                symbol=symbol,
+                strategy=strategy.name,
+                strategy_version=strategy.version,
+                client_order_id=f"paper_close_{symbol}_{int(time.time()*1000)}",
+                now_ms=int(time.time() * 1000),
+            )
+        except Exception as e:
+            log.warning(f"  -> 平仓失败: {e}")
+            return
+        if handle is None:
+            log.info(f"  -> 无持仓可平: {symbol}")
+            return
+        self._order_count += 1
+        log.info(f"  -> 平仓订单: {handle.status} ({handle.client_order_id})")
 
     async def _lazy_load_exchange(self):
         try:
