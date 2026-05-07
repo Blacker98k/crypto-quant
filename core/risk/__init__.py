@@ -1,4 +1,5 @@
-"""风控层：L1 订单层 / L2 仓位层 / L3 投资组合层 / 熔断器。
+"""风控层：L1 订单层 / L2 仓位层 / L3 投资组合层 / 熔断器。"""
 
-详见 ``docs/02-架构设计文档.md §6`` 与 ``ADR-008``。Phase 3a 才落地实现。
-"""
+from core.risk.order_risk import L1OrderRiskValidator, RiskDecision
+
+__all__ = ["L1OrderRiskValidator", "RiskDecision"]

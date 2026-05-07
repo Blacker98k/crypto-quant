@@ -31,6 +31,7 @@ from core.data.ws_subscriber import WsSubscriber
 from core.db.migration_runner import MigrationRunner
 from core.execution.order_types import OrderIntent
 from core.execution.paper_engine import PaperMatchingEngine
+from core.risk import L1OrderRiskValidator
 from core.strategy import (
     S1BtcEthTrend,
     S2AltcoinReversal,
@@ -72,6 +73,7 @@ class PaperRunner:
             self._repo,
             get_price=lambda s: self._cache.latest_price(s),
         )
+        self._risk = L1OrderRiskValidator()
 
         # WS
         self._ws: WsSubscriber | None = None
@@ -194,6 +196,15 @@ class PaperRunner:
                     client_order_id=f"paper_{sym}_{int(time.time()*1000)}",
                     purpose="entry",
                 )
+                symbol_info = self._repo.get_symbol(sym)
+                decision = self._risk.validate(
+                    intent,
+                    symbol_info=symbol_info or {},
+                    reference_price=self._cache.latest_price(sym),
+                )
+                if not decision.accepted:
+                    log.warning(f"  -> L1 风控拒绝: {decision.reason}")
+                    continue
                 try:
                     handle = self._engine.place_order(intent, int(time.time() * 1000))
                     self._order_count += 1
