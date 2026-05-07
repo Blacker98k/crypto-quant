@@ -37,6 +37,70 @@ class SimulationResult:
     open_positions: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class SyntheticBarSpec:
+    symbol: str
+    timeframe: str
+    start_ms: int
+    count: int
+    start_price: float
+    step_bps: float = 5.0
+    volume: float = 1.0
+
+
+def generate_synthetic_bars(spec: SyntheticBarSpec) -> list[Bar]:
+    """Build deterministic OHLCV bars for paper-session regression runs."""
+    if spec.count <= 0:
+        return []
+    if spec.start_price <= 0:
+        raise ValueError("start_price must be positive")
+    if spec.volume <= 0:
+        raise ValueError("volume must be positive")
+
+    interval_ms = _timeframe_to_ms(spec.timeframe)
+    bars: list[Bar] = []
+    open_price = spec.start_price
+    direction = 1.0
+
+    for index in range(spec.count):
+        move = open_price * abs(spec.step_bps) / 10_000
+        close = open_price + (direction * move)
+        high = max(open_price, close) + (move * 0.5)
+        low = max(0.01, min(open_price, close) - (move * 0.5))
+        volume = spec.volume * (1 + (index % 5) * 0.05)
+        bars.append(
+            Bar(
+                symbol=spec.symbol,
+                timeframe=spec.timeframe,
+                ts=spec.start_ms + (index * interval_ms),
+                o=open_price,
+                h=high,
+                l=low,
+                c=close,
+                v=volume,
+                q=volume * close,
+                closed=True,
+            )
+        )
+        open_price = close
+        direction = -direction if index % 7 == 6 else direction
+    return bars
+
+
+def _timeframe_to_ms(timeframe: str) -> int:
+    units = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}
+    unit = timeframe[-1:]
+    if unit not in units:
+        raise ValueError(f"unsupported timeframe: {timeframe}")
+    try:
+        amount = int(timeframe[:-1])
+    except ValueError as exc:
+        raise ValueError(f"unsupported timeframe: {timeframe}") from exc
+    if amount <= 0:
+        raise ValueError(f"unsupported timeframe: {timeframe}")
+    return amount * units[unit]
+
+
 class SimulatedPaperSession:
     """Run strategies over synthetic bars through risk and paper execution."""
 
@@ -119,4 +183,9 @@ class SimulatedPaperSession:
         )
 
 
-__all__ = ["SimulatedPaperSession", "SimulationResult"]
+__all__ = [
+    "SimulatedPaperSession",
+    "SimulationResult",
+    "SyntheticBarSpec",
+    "generate_synthetic_bars",
+]

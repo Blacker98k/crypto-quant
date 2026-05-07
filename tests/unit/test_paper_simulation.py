@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.data.exchange.base import Bar
-from core.execution.simulation import SimulatedPaperSession
+from core.execution.simulation import (
+    SimulatedPaperSession,
+    SyntheticBarSpec,
+    generate_synthetic_bars,
+)
 from core.strategy.base import DataRequirement, Signal, Strategy
 
 
@@ -88,3 +94,33 @@ def test_simulated_session_counts_l1_rejections(sqlite_repo) -> None:
     assert result.orders == 0
     assert result.fills == 0
 
+
+def test_generate_synthetic_bars_is_deterministic() -> None:
+    bars = generate_synthetic_bars(
+        SyntheticBarSpec(
+            symbol="BTCUSDT",
+            timeframe="1m",
+            start_ms=1_700_000_000_000,
+            count=3,
+            start_price=50_000,
+            step_bps=10,
+            volume=2,
+        )
+    )
+
+    assert [bar.ts for bar in bars] == [
+        1_700_000_000_000,
+        1_700_000_060_000,
+        1_700_000_120_000,
+    ]
+    assert bars[0].o == 50_000
+    assert bars[0].c == 50_050
+    assert bars[1].o == 50_050
+    assert bars[1].q == pytest.approx(bars[1].v * bars[1].c)
+
+
+def test_generate_synthetic_bars_rejects_bad_specs() -> None:
+    with pytest.raises(ValueError, match="start_price"):
+        generate_synthetic_bars(SyntheticBarSpec("BTCUSDT", "1m", 0, 1, 0))
+    with pytest.raises(ValueError, match="unsupported timeframe"):
+        generate_synthetic_bars(SyntheticBarSpec("BTCUSDT", "tick", 0, 1, 50_000))

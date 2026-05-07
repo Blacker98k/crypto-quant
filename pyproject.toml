@@ -92,6 +92,7 @@ ignore = [
 "dashboard/server.py" = ["E402"]
 "scripts/**/*.py" = ["N999"]
 "scripts/run_paper.py" = ["E402", "N999"]
+"scripts/simulate_paper.py" = ["E402", "N999"]
 
 [tool.ruff.format]
 quote-style = "double"
