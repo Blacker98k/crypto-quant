@@ -133,6 +133,33 @@ class SqliteRepo:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def insert_risk_event(self, row: dict[str, Any]) -> int:
+        """Insert one risk_events row."""
+        keys = list(row)
+        placeholders = ", ".join("?" for _ in keys)
+        cur = self._conn.execute(
+            f"INSERT INTO risk_events ({', '.join(keys)}) VALUES ({placeholders})",
+            [row[k] for k in keys],
+        )
+        self._conn.commit()
+        return self._lastrowid(cur)
+
+    def get_recent_risk_events(
+        self, limit: int = 100, since_ms: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Read recent risk events in reverse chronological order."""
+        if since_ms is None:
+            rows = self._conn.execute(
+                "SELECT * FROM risk_events ORDER BY captured_at DESC, id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM risk_events WHERE captured_at >= ? "
+                "ORDER BY captured_at DESC, id DESC LIMIT ?",
+                (since_ms, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def kv_set(self, strategy: str, key: str, value_json: str) -> None:
         """写 strategy_kv。"""
         now = int(time.time() * 1000)

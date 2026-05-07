@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from core.data.exchange.base import Bar
@@ -83,7 +85,7 @@ class NoStopStrategy(ToggleStrategy):
         ]
 
 
-def test_simulated_session_counts_l1_rejections(sqlite_repo) -> None:
+def test_simulated_session_counts_and_records_signal_rejections(sqlite_repo) -> None:
     _seed_symbol(sqlite_repo)
     bars = [Bar("BTCUSDT", "1m", 1_700_000_000_000, 50000, 50100, 49900, 50000, 1, 50000)]
 
@@ -93,6 +95,12 @@ def test_simulated_session_counts_l1_rejections(sqlite_repo) -> None:
     assert result.rejected == 1
     assert result.orders == 0
     assert result.fills == 0
+    assert result.risk_events == 1
+
+    events = sqlite_repo.get_recent_risk_events(limit=1)
+    assert events[0]["type"] == "signal_rejected"
+    assert events[0]["source"] == "strategy"
+    assert json.loads(events[0]["payload"])["reason"] == "stop_price_required"
 
 
 def test_generate_synthetic_bars_is_deterministic() -> None:

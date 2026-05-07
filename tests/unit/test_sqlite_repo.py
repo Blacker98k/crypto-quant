@@ -323,6 +323,35 @@ def test_log_run_with_note(db_conn: sqlite3.Connection, empty_repo: SqliteRepo) 
     assert logs[0]["note"] == "limit order placed"
 
 
+def test_insert_and_read_recent_risk_events(empty_repo: SqliteRepo) -> None:
+    first_id = empty_repo.insert_risk_event(
+        {
+            "type": "signal_rejected",
+            "severity": "warn",
+            "source": "strategy",
+            "related_id": None,
+            "payload": '{"reason":"stop_price_required"}',
+            "captured_at": 1_700_000_000_000,
+        }
+    )
+    second_id = empty_repo.insert_risk_event(
+        {
+            "type": "order_rejected",
+            "severity": "warn",
+            "source": "L1",
+            "related_id": None,
+            "payload": '{"reason":"min_notional"}',
+            "captured_at": 1_700_000_001_000,
+        }
+    )
+
+    events = empty_repo.get_recent_risk_events(limit=10)
+
+    assert [event["id"] for event in events] == [second_id, first_id]
+    assert events[0]["source"] == "L1"
+    assert empty_repo.get_recent_risk_events(since_ms=1_700_000_000_500)[0]["id"] == second_id
+
+
 # ─── kv_get / kv_set / kv_delete ──────────────────────────────────────────
 
 

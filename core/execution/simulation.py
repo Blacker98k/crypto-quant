@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -35,6 +36,7 @@ class SimulationResult:
     orders: int = 0
     fills: int = 0
     open_positions: int = 0
+    risk_events: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +116,7 @@ class SimulatedPaperSession:
         self._signal_validator = StrategySignalValidator()
 
     def run(self, bars: list[Bar]) -> SimulationResult:
-        signals = rejected = orders = fills = 0
+        signals = rejected = orders = fills = risk_events = 0
         for bar in bars:
             self._cache.push_bar(bar)
             for strategy in self._strategies:
@@ -139,6 +141,16 @@ class SimulatedPaperSession:
                     )
                     if not signal_decision.accepted:
                         rejected += 1
+                        risk_events += self._record_rejection(
+                            event_type="signal_rejected",
+                            source="strategy",
+                            reason=signal_decision.reason,
+                            strategy=strategy.name,
+                            signal_side=signal.side,
+                            symbol=signal.symbol,
+                            client_order_id=cid,
+                            captured_at=bar.ts,
+                        )
                         continue
                     if signal.side == "close":
                         handle = self._engine.close_position(
@@ -173,6 +185,16 @@ class SimulatedPaperSession:
                     )
                     if not decision.accepted:
                         rejected += 1
+                        risk_events += self._record_rejection(
+                            event_type="order_rejected",
+                            source="L1",
+                            reason=decision.reason,
+                            strategy=strategy.name,
+                            signal_side=signal.side,
+                            symbol=signal.symbol,
+                            client_order_id=cid,
+                            captured_at=bar.ts,
+                        )
                         continue
                     self._engine.place_order(intent, bar.ts)
                     orders += 1
@@ -190,7 +212,43 @@ class SimulatedPaperSession:
             orders=orders,
             fills=fills,
             open_positions=open_positions,
+            risk_events=risk_events,
         )
+
+    def _record_rejection(
+        self,
+        *,
+        event_type: str,
+        source: str,
+        reason: str | None,
+        strategy: str,
+        signal_side: str,
+        symbol: str,
+        client_order_id: str,
+        captured_at: int,
+    ) -> int:
+        if not hasattr(self._repo, "insert_risk_event"):
+            return 0
+        self._repo.insert_risk_event(
+            {
+                "type": event_type,
+                "severity": "warn",
+                "source": source,
+                "related_id": None,
+                "payload": json.dumps(
+                    {
+                        "reason": reason,
+                        "strategy": strategy,
+                        "side": signal_side,
+                        "symbol": symbol,
+                        "client_order_id": client_order_id,
+                    },
+                    sort_keys=True,
+                ),
+                "captured_at": captured_at,
+            }
+        )
+        return 1
 
 
 __all__ = [
