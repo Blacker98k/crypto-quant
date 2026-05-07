@@ -13,6 +13,10 @@ class SqliteRepo:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self._conn.close()
+
     def upsert_symbols(self, rows: list[dict[str, Any]]) -> int:
         """批量 upsert symbols。"""
         if not rows:

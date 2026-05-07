@@ -409,3 +409,10 @@ def test_full_crud_flow(empty_repo: SqliteRepo) -> None:
     # 写/读 KV
     empty_repo.kv_set("s1", "state", '{"ready": true}')
     assert empty_repo.kv_get("s1", "state") == '{"ready": true}'
+
+
+def test_close_releases_connection(empty_repo: SqliteRepo) -> None:
+    empty_repo.close()
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        empty_repo.list_symbols()

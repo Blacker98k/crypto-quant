@@ -80,6 +80,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--static-price", type=float, default=_DEFAULT_STATIC_PRICE)
     parser.add_argument("--keep-db", action="store_true")
+    parser.add_argument("--cycles", type=int, default=1)
+    parser.add_argument("--interval-sec", type=float, default=0.0)
     return parser.parse_args()
 
 
@@ -137,11 +139,7 @@ async def _resolve_start_price(args: argparse.Namespace) -> tuple[float, str]:
     return live, "binance_usdm_public_ticker"
 
 
-async def main() -> None:
-    args = _parse_args()
-    if args.bars < 2:
-        raise SystemExit("--bars must be >= 2")
-
+async def _run_cycle(args: argparse.Namespace, cycle: int) -> dict[str, Any]:
     start_price, price_source = await _resolve_start_price(args)
     now_ms = int(time.time() * 1000)
     start_ms = now_ms - (args.bars * 60_000)
@@ -158,23 +156,44 @@ async def main() -> None:
     )
 
     repo = _open_repo(args.db, bool(args.keep_db))
-    _seed_symbol(repo, args.symbol)
-    strategy = PulseStrategy(args.symbol, close_at_ms=bars[-1].ts)
-    result = SimulatedPaperSession(repo, [strategy]).run(bars)
+    try:
+        _seed_symbol(repo, args.symbol)
+        strategy = PulseStrategy(args.symbol, close_at_ms=bars[-1].ts)
+        result = SimulatedPaperSession(repo, [strategy]).run(bars)
+    finally:
+        repo.close()
 
-    print(
-        json.dumps(
-            {
-                "symbol": args.symbol,
-                "db": str(args.db),
-                "price_source": price_source,
-                "start_price": start_price,
-                "result": asdict(result),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-    )
+    passed = result.orders == 2 and result.fills == 2 and result.open_positions == 0
+    return {
+        "cycle": cycle,
+        "symbol": args.symbol,
+        "db": str(args.db),
+        "price_source": price_source,
+        "start_price": start_price,
+        "result": asdict(result),
+        "passed": passed,
+    }
+
+
+async def main() -> None:
+    args = _parse_args()
+    if args.bars < 2:
+        raise SystemExit("--bars must be >= 2")
+    if args.cycles < 1:
+        raise SystemExit("--cycles must be >= 1")
+    if args.interval_sec < 0:
+        raise SystemExit("--interval-sec must be >= 0")
+
+    all_passed = True
+    for cycle in range(1, args.cycles + 1):
+        payload = await _run_cycle(args, cycle)
+        all_passed = all_passed and bool(payload["passed"])
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        if cycle < args.cycles and args.interval_sec:
+            await asyncio.sleep(args.interval_sec)
+
+    if not all_passed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
