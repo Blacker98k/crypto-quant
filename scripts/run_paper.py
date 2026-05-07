@@ -22,7 +22,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from core.data.exchange.binance_spot import BinanceSpotAdapter
+from core.data.exchange.binance_usdm import BinanceUsdmAdapter
 from core.data.feed import LiveFeed
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
@@ -75,7 +75,7 @@ class PaperRunner:
 
         # WS
         self._ws: WsSubscriber | None = None
-        self._exchange: BinanceSpotAdapter | None = None
+        self._exchange: BinanceUsdmAdapter | None = None
         self._exchange_task: asyncio.Task | None = None
         self._bar_tasks: set[asyncio.Task] = set()
 
@@ -121,7 +121,7 @@ class PaperRunner:
         self._running = True
 
         # 连接 WS
-        self._exchange = BinanceSpotAdapter(proxy=self._proxy, timeout_ms=15000)
+        self._exchange = BinanceUsdmAdapter(proxy=self._proxy, timeout_ms=15000)
         self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
 
         # 订阅 K 线
@@ -190,7 +190,7 @@ class PaperRunner:
                     side="buy" if sig.side == "long" else "sell",
                     order_type="market",
                     quantity=sig.suggested_size,
-                    stop_loss_price=sig.stop_price if sig.stop_price > 0 else None,
+                    stop_loss_price=sig.stop_price if sig.stop_price and sig.stop_price > 0 else None,
                     client_order_id=f"paper_{sym}_{int(time.time()*1000)}",
                     purpose="entry",
                 )
@@ -207,7 +207,7 @@ class PaperRunner:
 
     async def _lazy_load_exchange(self):
         try:
-            ex = BinanceSpotAdapter(proxy=self._proxy, timeout_ms=30000)
+            ex = BinanceUsdmAdapter(proxy=self._proxy, timeout_ms=30000)
             await ex._ensure_markets_loaded()
             self._exchange = ex
             if self._ws:

@@ -206,18 +206,19 @@ class PaperMatchingEngine:
         fill = self._build_fill(order_id, fill_price, intent.quantity, is_maker=False, now_ms=now_ms)
         fill_id = self._repo.insert_fill(self._fill_to_row(fill))
         fill.id = fill_id
+        exchange_id = _make_exchange_order_id()
 
         self._repo.update_order(order_id, {
             "status": "filled",
             "filled_qty": intent.quantity,
             "avg_fill_price": fill_price,
-            "exchange_order_id": _make_exchange_order_id(),
+            "exchange_order_id": exchange_id,
             "updated_at": now_ms,
         })
 
         return OrderHandle(
             client_order_id=intent.client_order_id,
-            exchange_order_id=_make_exchange_order_id(),
+            exchange_order_id=exchange_id,
             status="filled",
             submitted_at=now_ms,
         )

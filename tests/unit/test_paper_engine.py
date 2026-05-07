@@ -135,6 +135,13 @@ class TestMarketOrder:
         assert len(fills) == 1
         assert fills[0]["quantity"] == 0.1
 
+    def test_exchange_order_id_matches_persisted_order(self, sqlite_repo):
+        engine = _make_engine(sqlite_repo, price=50000.0)
+        now = 1_700_000_000_000
+        handle = engine.place_order(_intent(client_order_id="eid-test"), now)
+        order_row = sqlite_repo.get_order("eid-test")
+        assert order_row["exchange_order_id"] == handle.exchange_order_id
+
     def test_buy_slippage_applied(self, sqlite_repo):
         engine = _make_engine(sqlite_repo, price=50000.0)
         now = 1_700_000_000_000
@@ -328,6 +335,46 @@ class TestCheckPending:
         engine = _make_engine(sqlite_repo, price=50000.0)
         fills = engine.check_pending_orders(1_700_000_000_000)
         assert fills == []
+
+    def test_pending_order_uses_symbol_id_to_fetch_price(self, sqlite_repo):
+        sqlite_repo.upsert_symbols([
+            {
+                "exchange": "binance",
+                "symbol": "ETHUSDT",
+                "type": "perp",
+                "base": "ETH",
+                "quote": "USDT",
+                "tick_size": 0.01,
+                "lot_size": 0.001,
+                "min_notional": 10.0,
+                "listed_at": 1_500_000_000_000,
+            }
+        ])
+        now = 1_700_000_000_000
+        engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: 3100.0)
+        engine.place_order(
+            _intent(
+                client_order_id="eth-limit",
+                symbol="ETHUSDT",
+                order_type="limit",
+                price=3000.0,
+                side="buy",
+            ),
+            now,
+        )
+
+        seen = []
+
+        def get_price(symbol):
+            seen.append(symbol)
+            return 2900.0 if symbol == "ETHUSDT" else None
+
+        fills = PaperMatchingEngine(sqlite_repo, get_price=get_price).check_pending_orders(
+            now + 3600000
+        )
+
+        assert seen == ["ETHUSDT"]
+        assert len(fills) == 1
 
 
 # ─── OrderHandle / CancelResult 数据类 ──────────────────────────────────────────
