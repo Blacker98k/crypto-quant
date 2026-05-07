@@ -31,6 +31,7 @@ from core.data.sqlite_repo import SqliteRepo
 from core.data.ws_subscriber import WsSubscriber
 from core.db.migration_runner import MigrationRunner
 from core.execution.paper_engine import PaperMatchingEngine
+from core.monitor.market_health import summarize_market_health
 from core.monitor.paper_metrics import paper_metrics
 
 # 代理配置（根据环境变量或写死）
@@ -38,7 +39,7 @@ _PROXY = "http://127.0.0.1:57777"
 _SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 
 
-# ─── 工具函数 ──────────────────────────────────────────────────────────────────
+# ─── 工兛函数 ──────────────────────────────────────────────────────────────────
 
 
 def _start_of_day_ts() -> int:
@@ -274,7 +275,11 @@ def create_app(
         end_ms = int(time.time() * 1000) + 1 if until_ms is None else until_ms
         return paper_metrics(repo._conn, since_ms=start_ms, until_ms=end_ms)
 
-    # ─── WebSocket ─────────────────────────────────────────────────────────
+    @app.get("/api/data_health")
+    def api_data_health(limit: int = 100, since_ms: int | None = None):
+        return summarize_market_health(repo, limit=limit, since_ms=since_ms)
+
+    # ─── WebSocket ────────────────────────────────────────────────────────
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
@@ -315,7 +320,7 @@ def create_app(
         except WebSocketDisconnect:
             pass
 
-    # ─── 静态文件 ─────────────────────────────────────────────────────────
+    # ─── 静态文件 ────────────────────────────────────────────────────────
 
     @app.get("/")
     def index():
@@ -400,7 +405,7 @@ def _portfolio_value(usdt_balance: float, positions: list[dict], cache: MemoryCa
     return round(total, 2)
 
 
-# ─── main ───────────────────────────────────────────────────────────────────
+# ─── main ─────────────────────────────────────────────────────────────────
 
 
 def main() -> None:

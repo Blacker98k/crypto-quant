@@ -175,3 +175,19 @@ def test_dashboard_paper_metrics_endpoint(tmp_path: Path, tmp_db: sqlite3.Connec
     assert payload["fills"]["cash_pnl"] == -5_002.5
     assert payload["risk_events"] == {"total": 1, "by_severity": {"warn": 1}}
     assert payload["symbols"] == ["BTCUSDT"]
+
+
+def test_dashboard_data_health_endpoint_summarizes_run_log(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.log_run("binance_usdm_public_ticker", "ok", http_code=200, latency_ms=100)
+    repo.log_run("binance_usdm_public_ticker", "fail", latency_ms=1300, note="timeout")
+    app = _build_app(tmp_path, tmp_db)
+
+    payload = _call_route(app, "/api/data_health", limit=10, since_ms=None)
+
+    assert payload["status"] == "degraded"
+    assert payload["by_status"] == {"fail": 1, "ok": 1}
+    assert payload["endpoints"] == ["binance_usdm_public_ticker"]
+    assert payload["recent_failures"][0]["note"] == "timeout"

@@ -17,6 +17,7 @@
   .badge-ok{background:#dcfce7;color:#166534;padding:2px 6px;border-radius:3px;font-size:11px}
   .badge-warn{background:#fef9c3;color:#854d0e;padding:2px 6px;border-radius:3px;font-size:11px}
   .badge-err{background:#fee2e2;color:#b91c1c;padding:2px 6px;border-radius:3px;font-size:11px}
+  .badge-idle{background:#e5e7eb;color:#374151;padding:2px 6px;border-radius:3px;font-size:11px}
   .badge-market{background:#ede9fe;color:#6d28d9;padding:2px 6px;border-radius:3px;font-size:11px}
   .badge-limit{background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:3px;font-size:11px}
   .btn-toggle{background:#fff;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;font-size:13px;cursor:pointer}
@@ -113,6 +114,40 @@
       <div>
         <span class="text-slate-500 text-xs">Open notional</span><br>
         <span class="text-mono font-semibold">${{fmt(paperMetrics.positions.open_notional)}}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div>
+        <div class="text-sm font-semibold">Data health</div>
+        <div class="text-xs text-slate-500">
+          {{dataHealth.latest_endpoint || 'no public market probes yet'}}
+        </div>
+      </div>
+      <span :class="healthBadge(dataHealth.status)">{{dataHealth.status}}</span>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-sm">
+      <div>
+        <span class="text-slate-500 text-xs">Run logs</span><br>
+        <span class="text-mono font-semibold">{{dataHealth.total}}</span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">OK / Fail</span><br>
+        <span class="text-mono font-semibold">{{dataHealth.by_status.ok || 0}} / {{dataHealth.by_status.fail || 0}}</span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">Latency avg</span><br>
+        <span class="text-mono font-semibold">{{dataHealth.latency_ms.avg ?? '-'}} ms</span>
+      </div>
+      <div>
+        <span class="text-slate-500 text-xs">Latency max</span><br>
+        <span class="text-mono font-semibold">{{dataHealth.latency_ms.max ?? '-'}} ms</span>
+      </div>
+      <div class="sm:col-span-2">
+        <span class="text-slate-500 text-xs">Latest failure</span><br>
+        <span class="text-xs text-slate-700">{{dataHealth.recent_failures[0]?.note || '-'}}</span>
       </div>
     </div>
   </div>
@@ -289,6 +324,17 @@ createApp({
       risk_events:{total:0,by_severity:{}},
       positions:{open:0,open_notional:0},
     })
+    const dataHealth = reactive({
+      status:'idle',
+      total:0,
+      by_status:{},
+      latest_captured_at:null,
+      latest_endpoint:null,
+      latency_ms:{min:null,max:null,avg:null},
+      endpoints:[],
+      recent_failures:[],
+      recent:[],
+    })
     const prices = reactive({})
     const orders = ref([])
     const fills = ref([])
@@ -319,13 +365,14 @@ createApp({
     const tsToTime = (ts) => { const d=new Date(ts); return d.toLocaleTimeString('zh-CN',{hour12:false}) }
     const statusLabel = (s) => ({filled:'已成交',accepted:'挂单中',canceled:'已撤销',rejected:'已拒绝',new:'新订单',}[s]||s)
     const signClass = (v) => v>=0 ? 'pos' : 'neg'
+    const healthBadge = (s) => s==='ok' ? 'badge-ok' : s==='degraded' ? 'badge-err' : 'badge-idle'
 
     const flash = (msg) => { toast.value=msg; setTimeout(()=>toast.value='',2000) }
 
     // ── API 调用 ──
     const loadAll = async () => {
       try {
-        const [s,r1,r2,r3,r4,r5,r6] = await Promise.all([
+        const [s,r1,r2,r3,r4,r5,r6,r7] = await Promise.all([
           fetch(API+'/api/status').then(r=>r.json()),
           fetch(API+'/api/prices').then(r=>r.json()),
           fetch(API+'/api/orders?limit=50&status='+orderStatusFilter.value).then(r=>r.json()),
@@ -333,10 +380,12 @@ createApp({
           fetch(API+'/api/positions').then(r=>r.json()),
           fetch(API+'/api/strategies').then(r=>r.json()),
           fetch(API+'/api/paper_metrics').then(r=>r.json()),
+          fetch(API+'/api/data_health').then(r=>r.json()),
         ])
         Object.assign(status, s)
         Object.keys(prices).forEach(k=>delete prices[k]); Object.assign(prices, r1)
         Object.assign(paperMetrics, r6)
+        Object.assign(dataHealth, r7)
         orders.value = r2; fills.value = r3; positions.value = r4; strategies.value = r5
       } catch(e) {}
     }
@@ -473,10 +522,10 @@ createApp({
     watch(chartTF, () => loadPriceHistory())
 
     return {
-      status,paperMetrics,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
+      status,paperMetrics,dataHealth,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
       chartSymbol,chartTF,strategyFilter,orderStatusFilter,toast,
       filteredOrders,
-      fmt,fmtVol,tsToTime,statusLabel,signClass,
+      fmt,fmtVol,tsToTime,statusLabel,signClass,healthBadge,
       loadAll,loadOrders,loadPriceHistory,loadBalanceHistory,
       startSim,stopSim,randomOrder,
     }
