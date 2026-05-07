@@ -5,7 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from core.monitor.simulation_report import SimulationReportWriter, summarize_simulation_report
+from core.monitor.simulation_report import (
+    SimulationReportWriter,
+    summarize_simulation_cycles,
+    summarize_simulation_report,
+)
 
 
 def test_report_writer_creates_parent_and_appends_jsonl(tmp_path: Path) -> None:
@@ -125,6 +129,37 @@ def test_summarize_simulation_report_aggregates_cycles(tmp_path: Path) -> None:
     }
 
 
+def test_summarize_simulation_cycles_aggregates_payloads() -> None:
+    rows = [
+        {
+            "cycle": 1,
+            "symbol": "BTCUSDT",
+            "price_source": "static",
+            "passed": True,
+            "result": {"bars": 2, "orders": 2, "fills": 2},
+        },
+        {
+            "cycle": 2,
+            "symbol": "ETHUSDT",
+            "price_source": "static_fallback:TimeoutError",
+            "passed": False,
+            "result": {"bars": 2, "orders": 1, "fills": 0, "rejected": 1},
+        },
+    ]
+
+    summary = summarize_simulation_cycles(rows)
+
+    assert summary == {
+        "cycles": 2,
+        "passed": 1,
+        "failed": 1,
+        "pass_rate": 0.5,
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "price_sources": ["static", "static_fallback:TimeoutError"],
+        "totals": {"bars": 4, "orders": 3, "fills": 2, "rejected": 1},
+    }
+
+
 def test_summarize_simulation_report_cli_outputs_json(tmp_path: Path) -> None:
     report_path = tmp_path / "sim.jsonl"
     report_path.write_text(
@@ -157,4 +192,49 @@ def test_summarize_simulation_report_cli_outputs_json(tmp_path: Path) -> None:
         "symbols": ["BTCUSDT"],
         "price_sources": ["static"],
         "totals": {"bars": 2, "orders": 2},
+    }
+
+
+def test_simulate_paper_cli_writes_summary(tmp_path: Path) -> None:
+    db_path = tmp_path / "sim.sqlite"
+    summary_path = tmp_path / "reports" / "summary.json"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/simulate_paper.py",
+            "--price-source",
+            "static",
+            "--static-price",
+            "50000",
+            "--bars",
+            "2",
+            "--cycles",
+            "2",
+            "--db",
+            str(db_path),
+            "--summary",
+            str(summary_path),
+        ],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert json.loads(summary_path.read_text(encoding="utf-8")) == {
+        "cycles": 2,
+        "passed": 2,
+        "failed": 0,
+        "pass_rate": 1.0,
+        "symbols": ["BTCUSDT"],
+        "price_sources": ["static"],
+        "totals": {
+            "bars": 4,
+            "signals": 4,
+            "orders": 4,
+            "fills": 4,
+            "rejected": 0,
+            "risk_events": 0,
+            "open_positions": 0,
+        },
     }

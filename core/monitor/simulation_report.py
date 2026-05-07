@@ -45,12 +45,7 @@ class SimulationReportWriter:
         return self._file
 
 
-def summarize_simulation_report(path: Path) -> dict[str, Any]:
-    rows = [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+def summarize_simulation_cycles(rows: list[dict[str, Any]]) -> dict[str, Any]:
     passed = sum(1 for row in rows if row.get("passed") is True)
     totals: dict[str, int | float] = {}
     for row in rows:
@@ -74,4 +69,17 @@ def summarize_simulation_report(path: Path) -> dict[str, Any]:
     }
 
 
-__all__ = ["SimulationReportWriter", "summarize_simulation_report"]
+def summarize_simulation_report(path: Path) -> dict[str, Any]:
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return summarize_simulation_cycles(rows)
+
+
+__all__ = [
+    "SimulationReportWriter",
+    "summarize_simulation_cycles",
+    "summarize_simulation_report",
+]

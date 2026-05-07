@@ -31,7 +31,7 @@ from core.execution.simulation import (
     SyntheticBarSpec,
     generate_synthetic_bars,
 )
-from core.monitor.simulation_report import SimulationReportWriter
+from core.monitor.simulation_report import SimulationReportWriter, summarize_simulation_cycles
 from core.strategy import DataRequirement, Signal, Strategy
 
 _DEFAULT_DB_PATH = Path("data/simulated_paper.sqlite")
@@ -92,6 +92,12 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional JSONL path for durable per-cycle simulation reports.",
+    )
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=None,
+        help="Optional JSON path for the current run's aggregate simulation summary.",
     )
     return parser.parse_args()
 
@@ -170,7 +176,7 @@ async def _run_cycle(args: argparse.Namespace, cycle: int) -> dict[str, Any]:
     try:
         _seed_symbol(repo, args.symbol)
         strategy = PulseStrategy(args.symbol, close_at_ms=bars[-1].ts)
-        result = SimulatedPaperSession(repo, [strategy]).run(bars)
+        result = SimulatedPaperSession(repo, [strateg]).run(bars)
     finally:
         repo.close()
 
@@ -196,10 +202,12 @@ async def main() -> None:
         raise SystemExit("--interval-sec must be >= 0")
 
     all_passed = True
+    cycles: list[dict[str, Any]] = []
     writer = SimulationReportWriter(args.report) if args.report is not None else None
     try:
         for cycle in range(1, args.cycles + 1):
             payload = await _run_cycle(args, cycle)
+            cycles.append(payload)
             all_passed = all_passed and bool(payload["passed"])
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
             if writer is not None:
@@ -209,6 +217,14 @@ async def main() -> None:
     finally:
         if writer is not None:
             writer.close()
+
+    if args.summary is not None:
+        args.summary.parent.mkdir(parents=True, exist_ok=True)
+        args.summary.write_text(
+            json.dumps(summarize_simulation_cycles(cycles), ensure_ascii=False, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
 
     if not all_passed:
         raise SystemExit(1)
