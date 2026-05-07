@@ -20,12 +20,6 @@ from core.execution.order_types import (
     OrderIntent,
 )
 from core.execution.paper_engine import PaperMatchingEngine
-from core.execution.simulation import (
-    SimulatedPaperSession,
-    SimulationResult,
-    SyntheticBarSpec,
-    generate_synthetic_bars,
-)
 
 __all__ = [
     "BINANCE_ERROR_TABLE",
@@ -35,11 +29,7 @@ __all__ = [
     "OrderHandle",
     "OrderIntent",
     "PaperMatchingEngine",
-    "SimulatedPaperSession",
-    "SimulationResult",
-    "SyntheticBarSpec",
     "build_error_message",
-    "generate_synthetic_bars",
     "is_ip_banned",
     "is_rate_limited",
     "is_server_error",

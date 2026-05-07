@@ -26,7 +26,11 @@ from core.data.exchange.base import Bar
 from core.data.exchange.binance_usdm import BinanceUsdmAdapter
 from core.data.sqlite_repo import SqliteRepo
 from core.db.migration_runner import MigrationRunner
-from core.execution import SimulatedPaperSession, SyntheticBarSpec, generate_synthetic_bars
+from core.execution.simulation import (
+    SimulatedPaperSession,
+    SyntheticBarSpec,
+    generate_synthetic_bars,
+)
 from core.strategy import DataRequirement, Signal, Strategy
 
 _DEFAULT_DB_PATH = Path("data/simulated_paper.sqlite")
