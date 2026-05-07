@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+
+from core.data.exchange.base import Bar
 from core.data.memory_cache import MemoryCache
 from core.data.ws_subscriber import WsSubscriber
 
@@ -12,6 +16,76 @@ class FakeParquetIO:
 
     def write_bars(self, bars) -> None:
         self.writes.extend(bars)
+
+
+class FakeMessage:
+    def __init__(self, data: str) -> None:
+        self.data = data
+
+
+class DroppingWebSocket:
+    def __init__(self, payloads: list[dict]) -> None:
+        self.payloads = payloads
+        self.closed = False
+
+    async def __aiter__(self):
+        for payload in self.payloads:
+            yield FakeMessage(json.dumps(payload))
+        raise RuntimeError("socket dropped")
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class BlockingWebSocket:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def __aiter__(self):
+        while not self.closed:
+            await asyncio.sleep(0.01)
+        return
+        yield
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class FakeSession:
+    def __init__(self, ws) -> None:
+        self.ws = ws
+        self.closed = False
+        self.urls: list[str] = []
+
+    async def ws_connect(self, url: str, heartbeat: int, proxy: str | None = None):
+        self.urls.append(url)
+        return self.ws
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class FakeExchange:
+    market_type = "perp"
+
+    def __init__(self, bars: list[Bar]) -> None:
+        self.bars = bars
+        self.calls: list[tuple[str, str, int, int, int]] = []
+
+    async def fetch_klines(
+        self,
+        symbol: str,
+        timeframe: str,
+        start_ms: int,
+        end_ms: int,
+        limit: int = 1000,
+    ) -> list[Bar]:
+        self.calls.append((symbol, timeframe, start_ms, end_ms, limit))
+        return [
+            bar
+            for bar in self.bars
+            if bar.symbol == symbol and bar.timeframe == timeframe and start_ms <= bar.ts < end_ms
+        ]
 
 
 def _kline_payload(*, closed: bool = True) -> dict:
@@ -33,6 +107,15 @@ def _kline_payload(*, closed: bool = True) -> dict:
             },
         },
     }
+
+
+async def _wait_for(predicate, timeout: float = 1.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("timed out waiting for predicate")
 
 
 async def test_handle_closed_kline_updates_cache_writes_parquet_and_calls_back() -> None:
@@ -75,3 +158,43 @@ def test_stream_url_uses_spot_or_futures_endpoint() -> None:
 
     assert perp._stream_url() == "wss://fstream.binance.com/stream?streams=ethusdt@kline_4h"
 
+
+async def test_reconnect_uses_rest_to_replay_missed_closed_bars() -> None:
+    cache = MemoryCache()
+    parquet = FakeParquetIO()
+    seen = []
+    missed = Bar(
+        symbol="BTCUSDT",
+        timeframe="1m",
+        ts=1700000060000,
+        o=105,
+        h=112,
+        l=101,
+        c=110,
+        v=3,
+        q=330,
+    )
+    exchange = FakeExchange([missed])
+    sessions = [
+        FakeSession(DroppingWebSocket([_kline_payload(closed=True)])),
+        FakeSession(BlockingWebSocket()),
+    ]
+
+    ws = WsSubscriber(
+        cache,
+        parquet,
+        exchange=exchange,
+        session_factory=lambda: sessions.pop(0),
+        reconnect_delay_sec=0,
+        clock_ms=lambda: 1700000120001,
+    )
+    ws.subscribe_candles("BTCUSDT", "1m", seen.append)
+
+    await ws.connect()
+    await _wait_for(lambda: len(exchange.calls) == 1 and len(seen) == 2)
+    await ws.close()
+
+    assert exchange.calls[0][2] == 1700000060000
+    assert [bar.ts for bar in parquet.writes] == [1700000000000, 1700000060000]
+    assert [bar.ts for bar in seen] == [1700000000000, 1700000060000]
+    assert cache.latest_price("BTCUSDT") == 110

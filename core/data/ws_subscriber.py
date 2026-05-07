@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
+from core.common.time_utils import tf_interval_ms
 from core.data.exchange.base import Bar
 from core.data.symbol import normalize_symbol
 
@@ -29,13 +31,18 @@ class WsSubscriber:
         parquet_io: _ParquetLike,
         exchange: object | None = None,
         session_factory: Callable[[], Any] | None = None,
+        reconnect_delay_sec: float = 1.0,
+        clock_ms: Callable[[], int] | None = None,
     ) -> None:
         self._cache = cache
         self._parquet_io = parquet_io
         self._exchange = exchange
         self._session_factory = session_factory
+        self._reconnect_delay_sec = max(reconnect_delay_sec, 0)
+        self._clock_ms = clock_ms or self._system_clock_ms
         self._running = False
         self._subscriptions: dict[tuple[str, str], list[Callable[[Bar], None]]] = {}
+        self._last_closed_ts: dict[tuple[str, str], int] = {}
         self._session: Any | None = None
         self._ws: Any | None = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -51,6 +58,11 @@ class WsSubscriber:
         if not self._subscriptions:
             return
 
+        await self._open_connection(proxy)
+        self._reader_task = asyncio.create_task(self._read_loop(proxy))
+
+    async def _open_connection(self, proxy: str = "") -> None:
+        """Open one combined-stream connection."""
         import aiohttp
 
         self._session = self._session_factory() if self._session_factory else aiohttp.ClientSession()
@@ -59,7 +71,6 @@ class WsSubscriber:
             heartbeat=30,
             proxy=proxy or None,
         )
-        self._reader_task = asyncio.create_task(self._read_loop())
 
     async def close(self) -> None:
         """Close the WebSocket session and stop the reader task."""
@@ -69,6 +80,9 @@ class WsSubscriber:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._reader_task
             self._reader_task = None
+        await self._close_connection()
+
+    async def _close_connection(self) -> None:
         if self._ws is not None:
             await self._maybe_await(self._ws.close())
             self._ws = None
@@ -76,13 +90,29 @@ class WsSubscriber:
             await self._maybe_await(self._session.close())
             self._session = None
 
-    async def _read_loop(self) -> None:
-        if self._ws is None:
-            return
-        async for msg in self._ws:
-            payload = msg.data
-            if isinstance(payload, str):
-                await self._handle_payload(json.loads(payload))
+    async def _read_loop(self, proxy: str = "") -> None:
+        while self._running:
+            try:
+                if self._ws is None:
+                    return
+                async for msg in self._ws:
+                    payload = msg.data
+                    if isinstance(payload, str):
+                        await self._handle_payload(json.loads(payload))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+
+            if not self._running:
+                return
+            await self._close_connection()
+            if self._reconnect_delay_sec:
+                await asyncio.sleep(self._reconnect_delay_sec)
+            if not self._running:
+                return
+            await self._open_connection(proxy)
+            await self._catch_up_closed_bars()
 
     async def _handle_payload(self, payload: dict[str, Any]) -> None:
         """Parse a Binance combined-stream kline payload."""
@@ -107,11 +137,58 @@ class WsSubscriber:
             q=float(kline.get("q") or 0),
             closed=bool(kline.get("x")),
         )
+        await self._publish_bar(bar)
+
+    async def _catch_up_closed_bars(self) -> None:
+        fetch_klines = getattr(self._exchange, "fetch_klines", None)
+        if fetch_klines is None:
+            return
+
+        now_ms = self._clock_ms()
+        for symbol, timeframe in sorted(self._subscriptions):
+            last_ts = self._last_closed_ts.get((symbol, timeframe))
+            if last_ts is None:
+                continue
+            start_ms = last_ts + tf_interval_ms(timeframe)
+            if start_ms >= now_ms:
+                continue
+            bars = await fetch_klines(symbol, timeframe, start_ms, now_ms, limit=1000)
+            for bar in self._normalize_recovered_bars(bars, symbol, timeframe, start_ms, now_ms):
+                await self._publish_bar(bar)
+
+    async def _publish_bar(self, bar: Bar) -> None:
         self._cache.push_bar(bar)
         if bar.closed:
+            key = (bar.symbol, bar.timeframe)
+            self._last_closed_ts[key] = max(self._last_closed_ts.get(key, bar.ts), bar.ts)
             self._parquet_io.write_bars([bar])
         for callback in self._subscriptions.get((bar.symbol, bar.timeframe), []):
             callback(bar)
+
+    @staticmethod
+    def _normalize_recovered_bars(
+        bars: list[Bar],
+        symbol: str,
+        timeframe: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[Bar]:
+        deduped: dict[int, Bar] = {}
+        for bar in bars:
+            if bar.closed and start_ms <= bar.ts < end_ms:
+                deduped[bar.ts] = Bar(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    ts=bar.ts,
+                    o=bar.o,
+                    h=bar.h,
+                    l=bar.l,
+                    c=bar.c,
+                    v=bar.v,
+                    q=bar.q,
+                    closed=True,
+                )
+        return [deduped[ts] for ts in sorted(deduped)]
 
     def _stream_url(self) -> str:
         streams = "/".join(
@@ -129,6 +206,10 @@ class WsSubscriber:
     async def _maybe_await(value: Any) -> None:
         if hasattr(value, "__await__"):
             await value
+
+    @staticmethod
+    def _system_clock_ms() -> int:
+        return int(time.time() * 1000)
 
 
 __all__ = ["WsSubscriber"]
