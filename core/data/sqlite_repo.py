@@ -250,6 +250,13 @@ class SqliteRepo:
         ).fetchone()
         return self._to_dict(row)
 
+    def list_open_positions(self) -> list[dict[str, Any]]:
+        """Read all currently open positions."""
+        rows = self._conn.execute(
+            "SELECT * FROM positions WHERE closed_at IS NULL ORDER BY opened_at, id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def insert_position(self, row: dict[str, Any]) -> int:
         """插入 positions 行。"""
         keys = list(row)

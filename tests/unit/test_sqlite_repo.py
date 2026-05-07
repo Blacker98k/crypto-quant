@@ -13,7 +13,7 @@ import pytest
 
 from core.data.sqlite_repo import SqliteRepo
 
-# ─── 辅助常量 ──────────────────────────────────────────────────────────────
+# ─── 辅助常量 ─────────────────────────────────────────────────────────────
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
@@ -116,7 +116,7 @@ def repo_with_btc(empty_repo: SqliteRepo) -> SqliteRepo:
     return empty_repo
 
 
-# ─── upsert_symbols ───────────────────────────────────────────────────────
+# ─── upsert_symbols ──────────────────────────────────────────────────────
 
 
 def test_upsert_symbols_insert_new(db_conn: sqlite3.Connection, empty_repo: SqliteRepo) -> None:
@@ -165,7 +165,7 @@ def test_upsert_symbols_empty_list_returns_zero(empty_repo: SqliteRepo) -> None:
     assert empty_repo.upsert_symbols([]) == 0
 
 
-# ─── get_symbol ───────────────────────────────────────────────────────────
+# ─── get_symbol ──────────────────────────────────────────────────────────
 
 
 def test_get_symbol_exists(repo_with_btc: SqliteRepo) -> None:
@@ -181,7 +181,7 @@ def test_get_symbol_not_found(repo_with_btc: SqliteRepo) -> None:
     assert repo_with_btc.get_symbol("ETHUSDT", exchange="binance", stype="perp") is None
 
 
-# ─── list_symbols ─────────────────────────────────────────────────────────
+# ─── list_symbols ────────────────────────────────────────────────────────
 
 
 def test_list_symbols_all(empty_repo: SqliteRepo) -> None:
@@ -274,7 +274,7 @@ def test_clear_universe_column(db_conn: sqlite3.Connection, empty_repo: SqliteRe
     assert len(rows) == 0
 
 
-# ─── log_run / get_recent_run_log ─────────────────────────────────────────
+# ─── log_run / get_recent_run_log ────────────────────────────────────────
 
 
 def test_log_run_and_get_recent(db_conn: sqlite3.Connection, empty_repo: SqliteRepo) -> None:
@@ -352,6 +352,37 @@ def test_insert_and_read_recent_risk_events(empty_repo: SqliteRepo) -> None:
     assert empty_repo.get_recent_risk_events(since_ms=1_700_000_000_500)[0]["id"] == second_id
 
 
+def test_list_open_positions(empty_repo: SqliteRepo) -> None:
+    empty_repo.upsert_symbols([_BTC_ROW])
+    symbol = empty_repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    base_row = {
+        "symbol_id": symbol["id"],
+        "strategy": "s1",
+        "strategy_version": "dev",
+        "opening_signal_id": None,
+        "side": "long",
+        "qty": 0.1,
+        "avg_entry_price": 50_000.0,
+        "current_price": 50_000.0,
+        "unrealized_pnl": 0.0,
+        "realized_pnl": 0.0,
+        "leverage": 1.0,
+        "margin": None,
+        "liq_price": None,
+        "stop_order_id": None,
+        "trade_group_id": None,
+        "opened_at": 1_700_000_000_000,
+        "closed_at": None,
+    }
+    open_id = empty_repo.insert_position(base_row)
+    empty_repo.insert_position({**base_row, "opened_at": 1_700_000_001_000, "closed_at": 1})
+
+    positions = empty_repo.list_open_positions()
+
+    assert [position["id"] for position in positions] == [open_id]
+
+
 # ─── kv_get / kv_set / kv_delete ──────────────────────────────────────────
 
 
@@ -390,7 +421,7 @@ def test_kv_delete_nonexistent(empty_repo: SqliteRepo) -> None:
 
 
 def test_kv_multiple_strategies(db_conn: sqlite3.Connection, empty_repo: SqliteRepo) -> None:
-    """同 key 不同 strategy 互不影响。"""
+    """同 key 不同 strategy 互不录响。"""
     empty_repo.kv_set("s1", "window", "10")
     empty_repo.kv_set("s2", "window", "20")
 

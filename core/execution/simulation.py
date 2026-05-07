@@ -12,7 +12,12 @@ from core.data.feed import LiveFeed
 from core.data.memory_cache import MemoryCache
 from core.execution.order_types import OrderIntent
 from core.execution.paper_engine import PaperMatchingEngine
-from core.risk import L1OrderRiskValidator, L2PositionRiskSizer, StrategySignalValidator
+from core.risk import (
+    L1OrderRiskValidator,
+    L2PositionRiskSizer,
+    L3PortfolioRiskValidator,
+    StrategySignalValidator,
+)
 from core.strategy.base import Strategy, StrategyContext
 
 
@@ -114,6 +119,7 @@ class SimulatedPaperSession:
         self._engine = PaperMatchingEngine(repo, get_price=lambda symbol: self._cache.latest_price(symbol))
         self._risk = L1OrderRiskValidator()
         self._position_risk = L2PositionRiskSizer()
+        self._portfolio_risk = L3PortfolioRiskValidator()
         self._signal_validator = StrategySignalValidator()
 
     def run(self, bars: list[Bar]) -> SimulationResult:
@@ -179,6 +185,29 @@ class SimulatedPaperSession:
                         client_order_id=cid,
                         purpose="entry",
                     )
+                    symbol_info = self._repo.get_symbol(bar.symbol) or {}
+                    portfolio_decision = self._portfolio_risk.validate(
+                        intent,
+                        reference_price=bar.c,
+                        open_positions=self._repo.list_open_positions()
+                        if hasattr(self._repo, "list_open_positions")
+                        else [],
+                        symbol_id=int(symbol_info["id"]) if "id" in symbol_info else None,
+                    )
+                    if not portfolio_decision.accepted:
+                        rejected += 1
+                        risk_events += self._record_rejection(
+                            event_type="order_rejected",
+                            source="L3",
+                            reason=portfolio_decision.reason,
+                            strategy=strategy.name,
+                            signal_side=signal.side,
+                            symbol=signal.symbol,
+                            client_order_id=cid,
+                            captured_at=bar.ts,
+                        )
+                        continue
+
                     position_decision = self._position_risk.size(intent, reference_price=bar.c)
                     if not position_decision.accepted:
                         rejected += 1
@@ -197,7 +226,7 @@ class SimulatedPaperSession:
 
                     decision = self._risk.validate(
                         intent,
-                        symbol_info=self._repo.get_symbol(bar.symbol) or {},
+                        symbol_info=symbol_info,
                         reference_price=bar.c,
                     )
                     if not decision.accepted:
