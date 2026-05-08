@@ -26,15 +26,20 @@ class _DummyWs:
 class _DummyFeeder:
     _bar_counter = 7
     _ws = _DummyWs()
+    _last_bar_ms = 9_999_999_999_999
+    _bar_stale_after_ms = 120_000
+    _running = True
     started = 0
     stopped = 0
 
     async def start(self) -> None:
         self.started += 1
+        self._running = True
         self._ws._running = True
 
     async def stop(self) -> None:
         self.stopped += 1
+        self._running = False
         self._ws._running = False
 
 
@@ -172,6 +177,22 @@ def test_dashboard_status_exposes_live_feeder_running_state(
     assert payload["ws_connected"] is True
     assert payload["simulation_running"] is True
     assert payload["bars_received"] == 7
+    assert payload["market_data_stale"] is False
+    assert payload["last_bar_age_ms"] >= 0
+
+
+def test_dashboard_status_marks_stale_feeder_unhealthy(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+    app.state.feeder._last_bar_ms = 1
+    app.state.feeder._bar_stale_after_ms = 1
+
+    payload = _call_route(app, "/api/status")
+
+    assert payload["ws_connected"] is False
+    assert payload["simulation_running"] is False
+    assert payload["market_data_stale"] is True
 
 
 async def test_dashboard_control_endpoint_starts_and_stops_feeder(

@@ -139,9 +139,12 @@ class LiveDataFeeder:
         self._exchange: BinanceSpotAdapter | None = None
         self._exchange_task: asyncio.Task | None = None
         self._bar_counter = 0
+        self._last_bar_ms = 0
+        self._bar_stale_after_ms = 90_000
         self._running = False
         self._task: asyncio.Task | None = None
         self._price_task: asyncio.Task | None = None
+        self._watchdog_task: asyncio.Task | None = None
         self._ticker_24h: dict[str, dict[str, float]] = {}
 
     async def _lazy_load_exchange(self) -> None:
@@ -164,15 +167,9 @@ class LiveDataFeeder:
         self._running = True
 
         # WS 订阅（不依赖 exchange adapter 预加载）
-        self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
-
         await self._refresh_universe()
 
-        for sym in self._symbols:
-            self._ws.subscribe_candles(sym, "1m", self._on_bar)
-        self._ws.subscribe_tickers(self._symbols)
-
-        await self._ws.connect(proxy=self._proxy)
+        await self._connect_ws()
         print(f"  [LiveFeed] WS 已连接，订阅: {', '.join(self._symbols)} 1m")
 
         # 后台加载 exchange（不录响启动）
@@ -181,10 +178,29 @@ class LiveDataFeeder:
         # 启动定时检查引擎
         self._task = asyncio.create_task(self._engine_loop())
         self._price_task = asyncio.create_task(self._rest_price_loop())
+        self._watchdog_task = asyncio.create_task(self._bar_watchdog_loop())
+
+    async def _connect_ws(self) -> None:
+        self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
+        for sym in self._symbols:
+            self._ws.subscribe_candles(sym, "1m", self._on_bar)
+        self._ws.subscribe_tickers(self._symbols)
+        await self._ws.connect(proxy=self._proxy)
+        print(f"  [LiveFeed] WS connected, subscribed {len(self._symbols)} symbols")
+
+    async def _restart_ws(self, reason: str) -> None:
+        self._repo.log_run("dashboard_ws_watchdog", "fail", note=reason[:200])
+        print(f"  [LiveFeed] watchdog restarting WS: {reason}")
+        if self._ws:
+            await self._ws.close()
+        self._last_bar_ms = 0
+        await self._backfill_recent_1m(self._symbols)
+        await self._connect_ws()
 
     def _on_bar(self, bar) -> None:
         """收到收盘 K 线时触发引擎检查。"""
         self._bar_counter += 1
+        self._last_bar_ms = int(time.time() * 1000)
         if self._trader and getattr(bar, "closed", False):
             handles = self._trader.on_bar(bar, now_ms=int(time.time() * 1000))
             if handles:
@@ -195,7 +211,7 @@ class LiveDataFeeder:
 
     async def _engine_loop(self) -> None:
         """定时检查挂单 + 记录资金曲线。"""
-        while self._running and self._ws and self._ws._running:
+        while self._running:
             try:
                 now_ms = int(time.time() * 1000)
                 fills = self._engine.check_pending_orders(now_ms)
@@ -204,6 +220,18 @@ class LiveDataFeeder:
             except Exception:
                 pass
             await asyncio.sleep(2)
+
+    async def _bar_watchdog_loop(self) -> None:
+        while self._running:
+            await asyncio.sleep(30)
+            if not self._running or self._bar_counter == 0:
+                continue
+            age_ms = _feeder_last_bar_age_ms(self)
+            if age_ms is not None and age_ms > self._bar_stale_after_ms:
+                try:
+                    await self._restart_ws(f"bar stream stale for {age_ms}ms")
+                except Exception as exc:
+                    self._repo.log_run("dashboard_ws_watchdog", "fail", note=str(exc)[:200])
 
     async def _rest_price_loop(self) -> None:
         """Use REST as a latest-price freshness fallback when WS frames stall."""
@@ -285,6 +313,8 @@ class LiveDataFeeder:
             self._task.cancel()
         if self._price_task:
             self._price_task.cancel()
+        if self._watchdog_task:
+            self._watchdog_task.cancel()
         if self._ws:
             await self._ws.close()
         if self._exchange:
@@ -324,11 +354,15 @@ def create_app(
         port_val = _portfolio_value(app.state.usdt_balance, positions, cache)
         risk_counts = _risk_event_counts(repo)
         running = _feeder_running(feeder)
+        last_bar_age_ms = _feeder_last_bar_age_ms(feeder)
+        market_data_stale = _feeder_market_data_stale(feeder)
         return {
             "mode": "live_paper",
             "simulation_running": running,
             "ws_connected": running,
             "bars_received": feeder._bar_counter,
+            "last_bar_age_ms": last_bar_age_ms,
+            "market_data_stale": market_data_stale,
             "portfolio_value": round(port_val, 2),
             "usdt_balance": round(app.state.usdt_balance, 2),
             "open_positions_n": len(positions),
@@ -607,6 +641,8 @@ def create_app(
                     "simulation_running": _feeder_running(feeder),
                     "ws_connected": _feeder_running(feeder),
                     "bars_received": feeder._bar_counter,
+                    "last_bar_age_ms": _feeder_last_bar_age_ms(feeder),
+                    "market_data_stale": _feeder_market_data_stale(feeder),
                     "latest_prices": prices,
                     "open_positions_n": len(positions),
                     "positions": positions,
@@ -710,7 +746,26 @@ def _actionable_risk_sql() -> str:
 
 def _feeder_running(feeder: LiveDataFeeder) -> bool:
     ws = getattr(feeder, "_ws", None)
-    return bool(getattr(feeder, "_running", False) or getattr(ws, "_running", False))
+    if not bool(getattr(feeder, "_running", False) and getattr(ws, "_running", False)):
+        return False
+    return not _feeder_market_data_stale(feeder)
+
+
+def _feeder_last_bar_age_ms(feeder: LiveDataFeeder) -> int | None:
+    last_bar_ms = int(getattr(feeder, "_last_bar_ms", 0) or 0)
+    if last_bar_ms <= 0:
+        return None
+    return max(0, int(time.time() * 1000) - last_bar_ms)
+
+
+def _feeder_market_data_stale(feeder: LiveDataFeeder) -> bool:
+    if int(getattr(feeder, "_bar_counter", 0) or 0) <= 0:
+        return False
+    age_ms = _feeder_last_bar_age_ms(feeder)
+    if age_ms is None:
+        return False
+    stale_after_ms = int(getattr(feeder, "_bar_stale_after_ms", 120_000) or 120_000)
+    return age_ms > stale_after_ms
 
 
 def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
