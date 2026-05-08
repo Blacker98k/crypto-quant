@@ -170,3 +170,42 @@ def test_summarize_simulation_report_cli_enforces_symbol_and_reason_gates(
     assert summary["reasons"] == ["insufficient_bars"]
     assert "missing required symbol: ETHUSDT" in result.stderr
     assert "forbidden reason matched: insufficient_bars" in result.stderr
+
+
+def test_summarize_simulation_report_cli_enforces_timeframe_gate(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "historical.jsonl"
+    _write_report(
+        report_path,
+        [
+            {
+                "cycle": 1,
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {"bars": 24, "orders": 2},
+            }
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/summarize_simulation_report.py",
+            str(report_path),
+            "--require-timeframe",
+            "1h",
+            "--require-timeframe",
+            "4h",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["timeframes"] == ["1h"]
+    assert "missing required timeframe: 4h" in result.stderr

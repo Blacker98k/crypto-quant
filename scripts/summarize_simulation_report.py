@@ -58,6 +58,12 @@ def _parse_args() -> argparse.Namespace:
         help="Exit non-zero unless the summary includes this symbol. Repeatable.",
     )
     parser.add_argument(
+        "--require-timeframe",
+        action="append",
+        default=[],
+        help="Exit non-zero unless the summary includes this timeframe. Repeatable.",
+    )
+    parser.add_argument(
         "--forbid-reason",
         action="append",
         default=[],
@@ -98,6 +104,7 @@ def main() -> None:
 
     price_sources = {str(source) for source in summary.get("price_sources", [])}
     symbols = {str(symbol) for symbol in summary.get("symbols", [])}
+    timeframes = {str(timeframe) for timeframe in summary.get("timeframes", [])}
     reasons = {str(reason) for reason in summary.get("reasons", [])}
     for required in args.require_price_source:
         if required not in price_sources:
@@ -107,6 +114,11 @@ def main() -> None:
     for required in args.require_symbol:
         if required not in symbols:
             print(f"missing required symbol: {required}", file=sys.stderr)
+            failed = True
+
+    for required in args.require_timeframe:
+        if required not in timeframes:
+            print(f"missing required timeframe: {required}", file=sys.stderr)
             failed = True
 
     for reason in args.forbid_reason:

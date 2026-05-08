@@ -70,6 +70,9 @@ def summarize_simulation_cycles(rows: list[dict[str, Any]]) -> dict[str, Any]:
     reasons = sorted({str(row["reason"]) for row in rows if "reason" in row})
     if reasons:
         summary["reasons"] = reasons
+    timeframes = sorted({str(row["timeframe"]) for row in rows if "timeframe" in row})
+    if timeframes:
+        summary["timeframes"] = timeframes
     return summary
 
 
