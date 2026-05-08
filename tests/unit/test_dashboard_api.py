@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from fastapi import FastAPI
 
+import dashboard.server as dashboard_server
 from core.data.exchange.base import Bar
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.execution.paper_engine import PaperMatchingEngine
 from dashboard.server import (
+    LiveDataFeeder,
     _apply_rest_price_rows,
     _apply_ticker_24h_rows,
     _compute_positions,
@@ -205,6 +207,96 @@ async def test_dashboard_control_endpoint_starts_and_stops_feeder(
 
     assert stopped["simulation_running"] is False
     assert started["simulation_running"] is True
+
+
+async def test_live_feeder_falls_back_to_direct_ws_when_proxy_fails(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: Any
+) -> None:
+    class _ProxyAwareWs:
+        instances: ClassVar[list[_ProxyAwareWs]] = []
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.connect_proxies: list[str] = []
+            self._running = False
+            _ProxyAwareWs.instances.append(self)
+
+        def subscribe_candles(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def subscribe_tickers(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def connect(self, proxy: str = "") -> None:
+            self.connect_proxies.append(proxy)
+            if proxy:
+                raise RuntimeError("502 Bad Gateway")
+            self._running = True
+
+        async def close(self) -> None:
+            self._running = False
+
+    monkeypatch.setattr(dashboard_server, "WsSubscriber", _ProxyAwareWs)
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(
+        cache,
+        parquet_io,
+        repo,
+        engine,
+        proxy="http://127.0.0.1:57777",
+        symbols=["BTCUSDT"],
+    )
+
+    await feeder._connect_ws()
+
+    assert len(_ProxyAwareWs.instances) == 2
+    assert _ProxyAwareWs.instances[0].connect_proxies == ["http://127.0.0.1:57777"]
+    assert _ProxyAwareWs.instances[1].connect_proxies == [""]
+    assert feeder._proxy == ""
+    assert feeder._ws is _ProxyAwareWs.instances[1]
+
+
+async def test_live_feeder_falls_back_to_direct_rest_when_proxy_fails(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: Any
+) -> None:
+    top_symbol_proxies: list[str] = []
+    kline_proxies: list[str] = []
+
+    async def _fetch_top_symbols(*, proxy: str = "", limit: int = 30) -> list[str]:
+        top_symbol_proxies.append(proxy)
+        if proxy:
+            raise RuntimeError("502 Bad Gateway")
+        return ["BTCUSDT"]
+
+    async def _fetch_klines(
+        symbol: str, timeframe: str, *, proxy: str = "", limit: int = 20
+    ) -> list[Bar]:
+        kline_proxies.append(proxy)
+        return []
+
+    monkeypatch.setattr(dashboard_server, "fetch_binance_top_usdt_symbols", _fetch_top_symbols)
+    monkeypatch.setattr(dashboard_server, "fetch_binance_recent_klines", _fetch_klines)
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(
+        cache,
+        parquet_io,
+        repo,
+        engine,
+        proxy="http://127.0.0.1:57777",
+        symbols=["ETHUSDT"],
+    )
+
+    await feeder._refresh_universe()
+
+    assert top_symbol_proxies == ["http://127.0.0.1:57777", ""]
+    assert kline_proxies == [""]
+    assert feeder._proxy == ""
+    assert feeder._symbols == ["BTCUSDT"]
 
 
 def test_dashboard_paper_metrics_endpoint(tmp_path: Path, tmp_db: sqlite3.Connection) -> None:

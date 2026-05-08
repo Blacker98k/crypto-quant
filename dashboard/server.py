@@ -180,13 +180,45 @@ class LiveDataFeeder:
         self._price_task = asyncio.create_task(self._rest_price_loop())
         self._watchdog_task = asyncio.create_task(self._bar_watchdog_loop())
 
-    async def _connect_ws(self) -> None:
+    def _build_ws(self) -> WsSubscriber:
         self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
         for sym in self._symbols:
             self._ws.subscribe_candles(sym, "1m", self._on_bar)
         self._ws.subscribe_tickers(self._symbols)
-        await self._ws.connect(proxy=self._proxy)
+        return self._ws
+
+    async def _connect_ws(self) -> None:
+        ws = self._build_ws()
+        try:
+            await ws.connect(proxy=self._proxy)
+        except Exception as exc:
+            if not self._proxy:
+                raise
+            await ws.close()
+            self._proxy = ""
+            ws = self._build_ws()
+            await ws.connect(proxy="")
+            self._repo.log_run(
+                "dashboard_ws_proxy_fallback",
+                "ok",
+                note=f"proxy failed ({exc}); direct WS connected"[:200],
+            )
         print(f"  [LiveFeed] WS connected, subscribed {len(self._symbols)} symbols")
+
+    async def _call_binance_with_proxy_fallback(self, endpoint: str, call):
+        try:
+            return await call(self._proxy)
+        except Exception as exc:
+            if not self._proxy:
+                raise
+            self._proxy = ""
+            result = await call("")
+            self._repo.log_run(
+                "binance_proxy_fallback",
+                "ok",
+                note=f"{endpoint}: proxy failed ({exc}); direct retry ok"[:200],
+            )
+            return result
 
     async def _restart_ws(self, reason: str) -> None:
         self._repo.log_run("dashboard_ws_watchdog", "fail", note=reason[:200])
@@ -248,14 +280,18 @@ class LiveDataFeeder:
         captured_at_ms = int(time.time() * 1000)
         params = {"symbols": json.dumps(self._symbols)}
         timeout = aiohttp.ClientTimeout(total=5)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(
-                _FUTURES_PRICE_URL,
-                params=params,
-                proxy=self._proxy or None,
-            ) as resp:
-                resp.raise_for_status()
-                rows = await resp.json()
+
+        async def fetch_prices(proxy: str):
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    _FUTURES_PRICE_URL,
+                    params=params,
+                    proxy=proxy or None,
+                ) as resp:
+                    resp.raise_for_status()
+                    return await resp.json()
+
+        rows = await self._call_binance_with_proxy_fallback("binance_futures_prices", fetch_prices)
         _apply_rest_price_rows(
             self._cache,
             rows,
@@ -269,19 +305,26 @@ class LiveDataFeeder:
 
         params = {"symbols": json.dumps(self._symbols)}
         timeout = aiohttp.ClientTimeout(total=5)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(
-                _FUTURES_24H_URL,
-                params=params,
-                proxy=self._proxy or None,
-            ) as resp:
-                resp.raise_for_status()
-                rows = await resp.json()
+
+        async def fetch_tickers(proxy: str):
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    _FUTURES_24H_URL,
+                    params=params,
+                    proxy=proxy or None,
+                ) as resp:
+                    resp.raise_for_status()
+                    return await resp.json()
+
+        rows = await self._call_binance_with_proxy_fallback("binance_futures_24h", fetch_tickers)
         self._ticker_24h = _apply_ticker_24h_rows(rows)
 
     async def _refresh_universe(self) -> None:
         try:
-            symbols = await fetch_binance_top_usdt_symbols(proxy=self._proxy, limit=30)
+            symbols = await self._call_binance_with_proxy_fallback(
+                "binance_usdt_top30_universe",
+                lambda proxy: fetch_binance_top_usdt_symbols(proxy=proxy, limit=30),
+            )
         except Exception as exc:
             symbols = DEFAULT_TOP30_USDT
             self._repo.log_run("binance_usdt_top30_universe", "fail", note=str(exc)[:200])
@@ -296,7 +339,12 @@ class LiveDataFeeder:
     async def _backfill_recent_1m(self, symbols: list[str]) -> None:
         for symbol in symbols:
             try:
-                bars = await fetch_binance_recent_klines(symbol, "1m", proxy=self._proxy, limit=20)
+                bars = await self._call_binance_with_proxy_fallback(
+                    f"binance_1m_warmup_{symbol}",
+                    lambda proxy, symbol=symbol: fetch_binance_recent_klines(
+                        symbol, "1m", proxy=proxy, limit=20
+                    ),
+                )
             except Exception as exc:
                 self._repo.log_run(f"binance_1m_warmup_{symbol}", "fail", note=str(exc)[:200])
                 continue
