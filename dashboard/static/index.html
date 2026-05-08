@@ -344,6 +344,111 @@
     border-radius:8px;
     background:linear-gradient(180deg,#ffffff,#f8fbff);
   }
+  .research-workbench {
+    grid-template-columns:minmax(0,1fr) 390px;
+    grid-template-areas:
+      "chart insight"
+      "chart flow"
+      "chart markets";
+    gap:10px;
+  }
+  .research-insight { grid-area:insight; }
+  .research-side {
+    grid-area:side;
+    display:grid;
+    gap:10px;
+    align-content:start;
+  }
+  .lab-title {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width:0;
+  }
+  .lab-kicker {
+    color:var(--muted);
+    font-size:12px;
+    font-weight:650;
+  }
+  .lab-title h1 {
+    margin:0;
+    font-size:22px;
+    line-height:1.12;
+    font-weight:850;
+  }
+  .brand-lockup > .min-w-0 { display:none; }
+  .lab-copy h1 {
+    margin:0;
+    font-size:22px;
+    line-height:1.12;
+    font-weight:850;
+  }
+  .research-metrics {
+    padding:0 2px 2px;
+  }
+  .metric-card.hero-metric {
+    min-width:190px;
+    background:linear-gradient(135deg,#102033,#174ea6);
+    border-color:#102033;
+    color:#fff;
+  }
+  .metric-card.hero-metric .label,
+  .metric-card.hero-metric .subtle { color:rgba(255,255,255,.72); }
+  .metric-card.hero-metric .value { color:#fff; }
+  .chart-summary {
+    display:flex;
+    flex-wrap:wrap;
+    align-items:flex-end;
+    gap:10px 14px;
+  }
+  .chart-meta {
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:6px;
+  }
+  .insight-panel .panel-body {
+    padding:10px;
+  }
+  .strategy-row {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 58px 58px;
+    gap:8px;
+    align-items:center;
+    min-height:48px;
+    padding:8px 0;
+    border-bottom:1px solid rgba(219,231,245,.9);
+  }
+  .strategy-row:last-child { border-bottom:0; }
+  .signal-chip {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:3px 8px;
+    border-radius:999px;
+    background:#ecfdf5;
+    color:var(--green);
+    font-size:11px;
+    font-weight:800;
+  }
+  .market-tape {
+    order:4;
+    padding-top:0;
+  }
+  .market-tape .ticker-tile {
+    min-height:50px;
+  }
+  .detail-panel {
+    order:5;
+  }
+  .research-side .order-flow,
+  .research-side .market-list {
+    max-height:258px;
+  }
+  .research-side .table-wrap {
+    max-height:220px;
+  }
   #app > section.panel { order:5; }
   @media (max-width:1280px) {
     .exchange-grid {
@@ -360,6 +465,13 @@
       grid-template-columns:none;
       overflow:auto;
     }
+    .research-workbench {
+      grid-template-columns:minmax(0,1fr) 330px;
+      grid-template-areas:
+        "chart insight"
+        "chart flow"
+        "chart markets";
+    }
   }
   @media (max-width:760px) {
     .terminal-shell { padding:8px; gap:8px; }
@@ -372,6 +484,15 @@
         "flow"
         "markets";
     }
+    .research-workbench {
+      grid-template-columns:1fr;
+      grid-template-areas:
+        "chart"
+        "insight"
+        "flow"
+        "markets";
+    }
+    .research-side { grid-area:side; }
     .chart-card { order:1; }
     .order-flow { order:2; }
     .market-list { order:3; }
@@ -383,6 +504,7 @@
     .brand-lockup { align-items:flex-start; flex-wrap:wrap; }
     .brand-lockup .text-\[11px\] { display:none; }
     .toolbar-group { width:100%; justify-content:flex-start; }
+    .lab-title h1 { font-size:20px; }
   }
 </style>
 </head>
@@ -391,6 +513,10 @@
   <header class="command-center">
     <div class="brand-lockup">
       <div class="brand-mark">CQ</div>
+      <div class="lab-copy">
+        <div class="lab-kicker">真实行情 · 模拟交易 · 策略研究</div>
+        <h1>量化研究交易工作台</h1>
+      </div>
       <div class="min-w-0">
         <div class="text-[11px] text-[#848e9c]">crypto-quant / 真实行情 · 模拟交易 · 策略评估</div>
         <h1 class="text-lg font-black leading-tight">多币种量化模拟交易看板</h1>
@@ -444,7 +570,7 @@
     <div class="metric-card"><div class="label">风控事件</div><div class="value">{{paperMetrics.risk_events.total || 0}}</div><div class="subtle">严重 {{status.critical_risk_events_n || 0}}</div></div>
   </section>
 
-  <main class="exchange-grid">
+  <main class="exchange-grid research-workbench">
     <aside class="panel market-list">
       <div class="panel-head">
         <div>
@@ -500,6 +626,37 @@
         </div>
       </div>
     </section>
+
+    <aside class="panel insight-panel research-insight">
+      <div class="panel-head">
+        <div>
+          <div class="font-black">策略观察</div>
+          <div class="subtle">按币种和策略持续沉淀样本</div>
+        </div>
+        <span class="badge">{{strategyMatrix.cells.length}} 组</span>
+      </div>
+      <div class="panel-body">
+        <div
+          v-for="cell in strategyMatrix.cells.slice(0,5)"
+          :key="'insight-'+cell.symbol+cell.strategy"
+          class="strategy-row"
+        >
+          <div class="min-w-0">
+            <div class="font-black">{{cell.symbol}}</div>
+            <div class="subtle">{{strategyLabel(cell.strategy)}}</div>
+          </div>
+          <div class="text-right">
+            <div class="label">成交</div>
+            <div class="font-bold">{{cell.fills}}</div>
+          </div>
+          <div class="text-right">
+            <div class="label">K线</div>
+            <div class="font-bold">{{cell.bars}}</div>
+          </div>
+        </div>
+        <div v-if="strategyMatrix.cells.length===0" class="subtle text-center py-8">策略预热中</div>
+      </div>
+    </aside>
 
     <aside class="panel order-flow">
       <div class="panel-head">
