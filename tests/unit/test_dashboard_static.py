@@ -59,6 +59,13 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
     for label in [
+        "初始资金",
+        "账户权益",
+        "可用余额",
+        "已用保证金",
+        "持仓市值",
+        "浮动盈亏",
+        "累计成交额",
         "行情覆盖",
         "订单总数",
         "成交笔数",
@@ -67,12 +74,12 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
         "运行日志",
         "平均延迟",
         "最大延迟",
-        "持仓名义额",
     ]:
         assert label in html
 
     for label in ["Data health", "Run logs", "Avg latency", "Max latency", "Cash PnL"]:
         assert label not in html
+    assert "持仓名义额" not in html
 
 
 def test_dashboard_static_page_uses_professional_candlestick_chart() -> None:

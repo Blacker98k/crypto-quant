@@ -360,36 +360,53 @@
 
   <section class="metric-grid grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-12">
     <div class="metric metric-card">
-      <div class="label">组合价值</div>
-      <div class="value">${{fmt(status.portfolio_value)}}</div>
+      <div class="label">初始资金</div>
+      <div class="value">${{fmt(status.initial_balance)}}</div>
+      <div class="subtle">模拟账户本金</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">USDT 余额</div>
+      <div class="label">账户权益</div>
+      <div class="value">${{fmt(status.portfolio_value)}}</div>
+      <div class="subtle">已实现 + 浮动盈亏</div>
+    </div>
+    <div class="metric metric-card">
+      <div class="label">可用余额</div>
       <div class="value">${{fmt(status.usdt_balance)}}</div>
+      <div class="subtle">已用保证金 ${{fmt(status.used_margin)}}</div>
     </div>
     <div class="metric metric-card">
       <div class="label">本日盈亏</div>
       <div class="value" :class="signClass(status.day_pnl.pnl)">{{status.day_pnl.pnl>=0?'+':''}}{{fmt(status.day_pnl.pnl)}}</div>
-      <div class="subtle">{{status.day_pnl.n}} 笔成交</div>
+      <div class="subtle">含浮盈 {{status.day_pnl.n}} 笔成交</div>
     </div>
     <div class="metric metric-card">
       <div class="label">本周盈亏</div>
       <div class="value" :class="signClass(status.week_pnl.pnl)">{{status.week_pnl.pnl>=0?'+':''}}{{fmt(status.week_pnl.pnl)}}</div>
-      <div class="subtle">{{status.week_pnl.n}} 笔成交</div>
+      <div class="subtle">含浮盈 {{status.week_pnl.n}} 笔成交</div>
+    </div>
+    <div class="metric metric-card">
+      <div class="label">已用保证金</div>
+      <div class="value">${{fmt(status.used_margin)}}</div>
+      <div class="subtle">{{fmt(status.paper_leverage,0)}}x 模拟保证金</div>
+    </div>
+    <div class="metric metric-card">
+      <div class="label">持仓市值</div>
+      <div class="value">${{fmt(status.open_notional)}}</div>
+      <div class="subtle">当前持仓 {{paperMetrics.positions.open || 0}}</div>
+    </div>
+    <div class="metric metric-card">
+      <div class="label">浮动盈亏</div>
+      <div class="value" :class="signClass(status.unrealized_pnl)">{{status.unrealized_pnl>=0?'+':''}}${{fmt(status.unrealized_pnl)}}</div>
+      <div class="subtle">按实时标记价</div>
     </div>
     <div class="metric metric-card">
       <div class="label">持仓 / 挂单</div>
       <div class="value">{{status.open_positions_n}} / {{status.open_orders_n}}</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">持仓名义额</div>
-      <div class="value">${{fmt(paperMetrics.positions.open_notional)}}</div>
-      <div class="subtle">当前持仓 {{paperMetrics.positions.open || 0}}</div>
-    </div>
-    <div class="metric metric-card">
       <div class="label">行情覆盖</div>
       <div class="value">{{Object.keys(status.latest_prices || {}).length || Object.keys(prices).length}}</div>
-      <div class="subtle">BTC / ETH 公共行情</div>
+      <div class="subtle">Binance 公共行情</div>
     </div>
     <div class="metric metric-card">
       <div class="label">订单总数</div>
@@ -402,7 +419,7 @@
       <div class="subtle">今日 {{status.day_pnl.n || 0}}</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">成交名义额</div>
+      <div class="label">累计成交额</div>
       <div class="value">${{fmt(paperMetrics.fills.filled_notional)}}</div>
       <div class="subtle">费用 ${{fmt(paperMetrics.fills.fees)}}</div>
     </div>
@@ -609,7 +626,7 @@
           <div class="font-bold">当前持仓</div>
           <div class="subtle">持仓 {{paperMetrics.positions.open}}</div>
         </div>
-        <div class="subtle">名义额 ${{fmt(paperMetrics.positions.open_notional)}}</div>
+        <div class="subtle">持仓市值 ${{fmt(status.open_notional)}}</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -666,7 +683,7 @@
       <div class="panel-head">
         <div>
           <div class="font-bold">资金曲线</div>
-          <div class="subtle">组合价值 / 累计盈亏</div>
+          <div class="subtle">账户权益 / 累计盈亏</div>
         </div>
       </div>
       <div class="panel-body">
@@ -685,7 +702,9 @@ createApp({
   setup() {
     const status = reactive({
       mode:'paper', simulation_running:false, ws_connected:false, bars_received:0,
-      portfolio_value:10000, usdt_balance:10000, open_positions_n:0, open_orders_n:0,
+      initial_balance:10000, portfolio_value:10000, usdt_balance:10000, open_positions_n:0, open_orders_n:0,
+      account_equity:10000, available_balance:10000, used_margin:0, open_notional:0,
+      realized_pnl:0, unrealized_pnl:0, paper_leverage:25,
       risk_events_n:0, critical_risk_events_n:0,
       day_pnl:{n:0,pnl:0}, week_pnl:{n:0,pnl:0}, latest_prices:{}
     })
@@ -910,7 +929,7 @@ createApp({
         data:{
           labels,
           datasets:[
-            {label:'组合价值',data:values,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.10)',fill:true,tension:.2,pointRadius:0,yAxisID:'y'},
+            {label:'账户权益',data:values,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.10)',fill:true,tension:.2,pointRadius:0,yAxisID:'y'},
             {label:'累计盈亏',data:pnl,borderColor:'#059669',borderDash:[5,4],fill:false,tension:0,pointRadius:0,yAxisID:'y1'},
           ]
         },
@@ -933,8 +952,16 @@ createApp({
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data)
         Object.assign(status, {
+          initial_balance: msg.initial_balance ?? status.initial_balance,
           portfolio_value: msg.portfolio_value,
           usdt_balance: msg.usdt_balance,
+          account_equity: msg.account_equity ?? msg.portfolio_value,
+          available_balance: msg.available_balance ?? msg.usdt_balance,
+          used_margin: msg.used_margin ?? status.used_margin,
+          open_notional: msg.open_notional ?? status.open_notional,
+          realized_pnl: msg.realized_pnl ?? status.realized_pnl,
+          unrealized_pnl: msg.unrealized_pnl ?? status.unrealized_pnl,
+          paper_leverage: msg.paper_leverage ?? status.paper_leverage,
           simulation_running: msg.simulation_running ?? msg.ws_connected ?? false,
           ws_connected: msg.ws_connected ?? false,
           bars_received: msg.bars_received ?? status.bars_received,

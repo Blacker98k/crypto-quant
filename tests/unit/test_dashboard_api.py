@@ -184,6 +184,63 @@ def test_dashboard_status_exposes_live_feeder_running_state(
     assert payload["last_bar_age_ms"] >= 0
 
 
+def test_dashboard_status_reports_futures_equity_and_available_balance(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "type": "perp",
+                "base": "BTC",
+                "quote": "USDT",
+                "tick_size": 0.1,
+                "lot_size": 0.001,
+                "min_notional": 10.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "explore_momentum",
+            "strategy_version": "explore_momentum",
+            "opening_signal_id": None,
+            "side": "long",
+            "qty": 0.1,
+            "avg_entry_price": 50_000.0,
+            "current_price": 50_000.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": None,
+            "opened_at": 1_700_000_000_000,
+            "closed_at": None,
+        }
+    )
+    app = _build_app(tmp_path, tmp_db)
+    app.state.cache.update_latest_price("BTCUSDT", 50_500.0)
+
+    payload = _call_route(app, "/api/status")
+
+    assert payload["initial_balance"] == 10_000.0
+    assert payload["portfolio_value"] == 10_050.0
+    assert payload["account_equity"] == 10_050.0
+    assert payload["used_margin"] == 202.0
+    assert payload["usdt_balance"] == 9_848.0
+    assert payload["available_balance"] == 9_848.0
+    assert payload["day_pnl"]["pnl"] == 50.0
+    assert payload["day_pnl"]["unrealized_pnl"] == 50.0
+
+
 def test_dashboard_status_marks_stale_feeder_unhealthy(
     tmp_path: Path, tmp_db: sqlite3.Connection
 ) -> None:

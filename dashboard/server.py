@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 import sys
 import time
@@ -44,11 +45,13 @@ from dashboard.paper_trading import (
 )
 
 # 代理配置（根据环境变量或写死）
-_PROXY = "http://127.0.0.1:57777"
+_PROXY = os.getenv("CQ_BINANCE_PROXY", "http://127.0.0.1:57777").strip()
 _SYMBOLS = DEFAULT_TOP30_USDT
 _FUTURES_PRICE_URL = "https://fapi.binance.com/fapi/v1/ticker/price"
 _FUTURES_24H_URL = "https://fapi.binance.com/fapi/v1/ticker/24hr"
 _DATA_HEALTH_DEFAULT_WINDOW_MS = 10 * 60_000
+_INITIAL_USDT_BALANCE = 10_000.0
+_PAPER_MARGIN_LEVERAGE = 25.0
 
 
 # ─── 工兛函数 ──────────────────────────────────────────────────────────────────
@@ -59,9 +62,17 @@ def _start_of_day_ts() -> int:
     return int((now_s - now_s % 86400) * 1000)
 
 
-def _pnl_in_window(repo: SqliteRepo, since_ms: int) -> dict:
+def _pnl_in_window(repo: SqliteRepo, since_ms: int, positions: list[dict] | None = None) -> dict:
     metrics = paper_metrics(repo._conn, since_ms=since_ms, until_ms=int(time.time() * 1000))
-    return {"n": metrics["fills"]["total"], "pnl": round(metrics["fills"]["cash_pnl"], 2), "roi": 0.0}
+    realized_pnl = float(metrics["fills"]["cash_pnl"])
+    unrealized_pnl = _positions_unrealized_pnl(positions or [])
+    return {
+        "n": metrics["fills"]["total"],
+        "pnl": round(realized_pnl + unrealized_pnl, 2),
+        "realized_pnl": round(realized_pnl, 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "roi": 0.0,
+    }
 
 
 # ─── 实时行情理货器 ────────────────────────────────────────────────────────────
@@ -379,7 +390,8 @@ def create_app(
     app.state.parquet_io = parquet_io
     app.state.engine = engine
     app.state.feeder = feeder
-    app.state.usdt_balance = 10000.0
+    app.state.initial_balance = _INITIAL_USDT_BALANCE
+    app.state.paper_leverage = _PAPER_MARGIN_LEVERAGE
     app.state.balance_history: list[dict] = []
     app.state.trader = trader
 
@@ -390,7 +402,12 @@ def create_app(
         prices = cache.latest_prices_all()
         orders = repo.get_open_orders()
         positions = _compute_positions(repo, cache)
-        port_val = _portfolio_value(app.state.usdt_balance, positions, cache)
+        account = _account_snapshot(
+            repo,
+            positions,
+            initial_balance=app.state.initial_balance,
+            leverage=app.state.paper_leverage,
+        )
         risk_counts = _risk_event_counts(repo)
         running = _feeder_running(feeder)
         last_bar_age_ms = _feeder_last_bar_age_ms(feeder)
@@ -402,14 +419,22 @@ def create_app(
             "bars_received": feeder._bar_counter,
             "last_bar_age_ms": last_bar_age_ms,
             "market_data_stale": market_data_stale,
-            "portfolio_value": round(port_val, 2),
-            "usdt_balance": round(app.state.usdt_balance, 2),
+            "initial_balance": account["initial_balance"],
+            "portfolio_value": account["equity"],
+            "account_equity": account["equity"],
+            "usdt_balance": account["available_balance"],
+            "available_balance": account["available_balance"],
+            "used_margin": account["used_margin"],
+            "open_notional": account["open_notional"],
+            "realized_pnl": account["realized_pnl"],
+            "unrealized_pnl": account["unrealized_pnl"],
+            "paper_leverage": account["leverage"],
             "open_positions_n": len(positions),
             "open_orders_n": len(orders),
             "risk_events_n": risk_counts["total"],
             "critical_risk_events_n": risk_counts["critical"],
-            "day_pnl": _pnl_in_window(repo, _start_of_day_ts()),
-            "week_pnl": _pnl_in_window(repo, _start_of_day_ts() - 7 * 86400_000),
+            "day_pnl": _pnl_in_window(repo, _start_of_day_ts(), positions),
+            "week_pnl": _pnl_in_window(repo, _start_of_day_ts() - 7 * 86400_000, positions),
             "latest_prices": prices,
         }
 
@@ -667,7 +692,13 @@ def create_app(
             while True:
                 prices = cache.latest_prices_all()
                 positions = _compute_positions(repo, cache)
-                port_val = _portfolio_value(app.state.usdt_balance, positions, cache)
+                account = _account_snapshot(
+                    repo,
+                    positions,
+                    initial_balance=app.state.initial_balance,
+                    leverage=app.state.paper_leverage,
+                )
+                _append_balance_history(app.state.balance_history, account)
                 recent_orders = repo._conn.execute(
                     "SELECT o.*, s.symbol as sym FROM orders o "
                     "LEFT JOIN symbols s ON o.symbol_id = s.id "
@@ -680,8 +711,16 @@ def create_app(
                     "ORDER BY f.ts DESC LIMIT 5"
                 ).fetchall()
                 await ws.send_json({
-                    "portfolio_value": round(port_val, 2),
-                    "usdt_balance": round(app.state.usdt_balance, 2),
+                    "initial_balance": account["initial_balance"],
+                    "portfolio_value": account["equity"],
+                    "account_equity": account["equity"],
+                    "usdt_balance": account["available_balance"],
+                    "available_balance": account["available_balance"],
+                    "used_margin": account["used_margin"],
+                    "open_notional": account["open_notional"],
+                    "realized_pnl": account["realized_pnl"],
+                    "unrealized_pnl": account["unrealized_pnl"],
+                    "paper_leverage": account["leverage"],
                     "simulation_running": _feeder_running(feeder),
                     "ws_connected": _feeder_running(feeder),
                     "bars_received": feeder._bar_counter,
@@ -843,12 +882,52 @@ def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
     return positions
 
 
-def _portfolio_value(usdt_balance: float, positions: list[dict], cache: MemoryCache) -> float:
-    total = usdt_balance
-    for p in positions:
-        cur = p["current_price"]
-        total += p["qty"] * cur
-    return round(total, 2)
+def _account_snapshot(
+    repo: SqliteRepo,
+    positions: list[dict],
+    *,
+    initial_balance: float = _INITIAL_USDT_BALANCE,
+    leverage: float = _PAPER_MARGIN_LEVERAGE,
+) -> dict[str, float]:
+    metrics = paper_metrics(repo._conn, since_ms=0, until_ms=int(time.time() * 1000))
+    realized_pnl = float(metrics["fills"]["cash_pnl"])
+    unrealized_pnl = _positions_unrealized_pnl(positions)
+    open_notional = _positions_open_notional(positions)
+    effective_leverage = leverage if leverage > 0 else 1.0
+    used_margin = open_notional / effective_leverage
+    equity = initial_balance + realized_pnl + unrealized_pnl
+    return {
+        "initial_balance": round(initial_balance, 2),
+        "equity": round(equity, 2),
+        "available_balance": round(equity - used_margin, 2),
+        "used_margin": round(used_margin, 2),
+        "open_notional": round(open_notional, 2),
+        "realized_pnl": round(realized_pnl, 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "leverage": round(effective_leverage, 2),
+    }
+
+
+def _positions_unrealized_pnl(positions: list[dict]) -> float:
+    return sum(float(row.get("unrealized_pnl") or 0.0) for row in positions)
+
+
+def _positions_open_notional(positions: list[dict]) -> float:
+    return sum(abs(float(row.get("qty") or 0.0) * float(row.get("current_price") or 0.0)) for row in positions)
+
+
+def _append_balance_history(history: list[dict], account: dict[str, float]) -> None:
+    history.append(
+        {
+            "ts": int(time.time() * 1000),
+            "balance": account["equity"],
+            "portfolio_value": account["equity"],
+            "available_balance": account["available_balance"],
+            "used_margin": account["used_margin"],
+        }
+    )
+    if len(history) > 2_000:
+        del history[:-2_000]
 
 
 # ─── main ─────────────────────────────────────────────────────────────────
