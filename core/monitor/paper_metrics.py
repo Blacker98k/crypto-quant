@@ -64,7 +64,10 @@ def _fill_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dic
 def _risk_event_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dict[str, Any]:
     rows = conn.execute(
         "SELECT severity, COUNT(*) AS n FROM risk_events "
-        "WHERE captured_at >= ? AND captured_at < ? GROUP BY severity ORDER BY severity",
+        "WHERE captured_at >= ? AND captured_at < ? "
+        "AND NOT (type = 'paper_signal_skipped' "
+        "AND (payload LIKE '%\"reason\": \"cooldown\"%' OR payload LIKE '%\"reason\":\"cooldown\"%')) "
+        "GROUP BY severity ORDER BY severity",
         (since_ms, until_ms),
     ).fetchall()
     by_severity = {str(row["severity"]): int(row["n"]) for row in rows}

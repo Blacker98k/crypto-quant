@@ -452,7 +452,7 @@ def create_app(
 
     @app.get("/api/risk_events")
     def api_risk_events(limit: int = 50, since_ms: int | None = None):
-        rows = repo.get_recent_risk_events(limit=max(1, min(limit, 500)), since_ms=since_ms)
+        rows = _recent_actionable_risk_events(repo, limit=max(1, min(limit, 500)), since_ms=since_ms)
         return [_risk_event_row(row) for row in rows]
 
     @app.get("/api/paper_metrics")
@@ -670,9 +670,40 @@ def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
     row = repo._conn.execute(
         "SELECT COUNT(*) AS total, "
         "SUM(CASE WHEN severity='critical' THEN 1 ELSE 0 END) AS critical "
-        "FROM risk_events"
+        "FROM risk_events "
+        f"WHERE {_actionable_risk_sql()}"
     ).fetchone()
     return {"total": int(row["total"] or 0), "critical": int(row["critical"] or 0)}
+
+
+def _recent_actionable_risk_events(
+    repo: SqliteRepo,
+    *,
+    limit: int,
+    since_ms: int | None,
+) -> list[dict]:
+    if since_ms is None:
+        rows = repo._conn.execute(
+            "SELECT * FROM risk_events "
+            f"WHERE {_actionable_risk_sql()} "
+            "ORDER BY captured_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    else:
+        rows = repo._conn.execute(
+            "SELECT * FROM risk_events "
+            f"WHERE captured_at >= ? AND {_actionable_risk_sql()} "
+            "ORDER BY captured_at DESC, id DESC LIMIT ?",
+            (since_ms, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _actionable_risk_sql() -> str:
+    return (
+        "NOT (type = 'paper_signal_skipped' "
+        "AND (payload LIKE '%\"reason\": \"cooldown\"%' OR payload LIKE '%\"reason\":\"cooldown\"%'))"
+    )
 
 
 def _feeder_running(feeder: LiveDataFeeder) -> bool:

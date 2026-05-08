@@ -80,6 +80,16 @@ def test_dashboard_risk_events_endpoint_parses_payload(
             "captured_at": 1_700_000_001_000,
         }
     )
+    repo.insert_risk_event(
+        {
+            "type": "paper_signal_skipped",
+            "severity": "info",
+            "source": "dashboard_trader",
+            "related_id": None,
+            "payload": '{"reason": "cooldown", "symbol": "BTCUSDT"}',
+            "captured_at": 1_700_000_002_000,
+        }
+    )
     app = _build_app(tmp_path, tmp_db)
 
     rows: list[dict[str, Any]] = _call_route(app, "/api/risk_events", limit=10, since_ms=None)
@@ -111,6 +121,16 @@ def test_dashboard_status_includes_risk_event_counts(
             "related_id": None,
             "payload": '{"reason":"drawdown"}',
             "captured_at": 1_700_000_001_000,
+        }
+    )
+    repo.insert_risk_event(
+        {
+            "type": "paper_signal_skipped",
+            "severity": "info",
+            "source": "dashboard_trader",
+            "related_id": None,
+            "payload": '{"reason":"cooldown","symbol":"BTCUSDT"}',
+            "captured_at": 1_700_000_002_000,
         }
     )
     app = _build_app(tmp_path, tmp_db)

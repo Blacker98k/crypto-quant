@@ -27,6 +27,13 @@ def _seed_metrics_fixture(conn: sqlite3.Connection) -> None:
     _insert_position(conn, eth_id, qty=1.0, current_price=3_000.0, closed_at=_SINCE_MS + 10)
     _insert_risk_event(conn, "warn", _SINCE_MS + 6)
     _insert_risk_event(conn, "critical", _SINCE_MS + 7)
+    _insert_risk_event(
+        conn,
+        "info",
+        _SINCE_MS + 8,
+        type_="paper_signal_skipped",
+        payload='{"reason": "cooldown", "symbol": "BTCUSDT"}',
+    )
     _insert_risk_event(conn, "info", _UNTIL_MS + 1)
     conn.commit()
 
@@ -158,11 +165,18 @@ def _insert_position(
     )
 
 
-def _insert_risk_event(conn: sqlite3.Connection, severity: str, captured_at: int) -> None:
+def _insert_risk_event(
+    conn: sqlite3.Connection,
+    severity: str,
+    captured_at: int,
+    *,
+    type_: str = "order_rejected",
+    payload: str = "{}",
+) -> None:
     conn.execute(
         "INSERT INTO risk_events (type, severity, source, payload, captured_at) "
         "VALUES (?, ?, ?, ?, ?)",
-        ("order_rejected", severity, "L1", "{}", captured_at),
+        (type_, severity, "L1", payload, captured_at),
     )
 
 

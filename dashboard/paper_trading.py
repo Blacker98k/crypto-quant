@@ -376,7 +376,18 @@ class DashboardPaperTrader:
     def _place_signal(self, strategy_name: str, signal: Signal, now_ms: int) -> OrderHandle | None:
         key = (signal.symbol, strategy_name)
         if now_ms - self._last_trade_ms.get(key, 0) < self._cooldown_ms:
-            self._record_risk("cooldown", "info", strategy_name, signal, now_ms)
+            evaluation = self._evaluations.setdefault(
+                key,
+                {
+                    "symbol": signal.symbol,
+                    "strategy_id": strategy_name,
+                    "ready": True,
+                    "bars": 0,
+                },
+            )
+            evaluation["throttled"] = True
+            evaluation["throttle_reason"] = "cooldown"
+            evaluation["cooldown_until_ms"] = self._last_trade_ms.get(key, 0) + self._cooldown_ms
             return None
         price = self._cache.latest_price(signal.symbol)
         if price is None or price <= 0:

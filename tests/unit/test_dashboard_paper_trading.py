@@ -184,6 +184,32 @@ def test_dashboard_paper_trader_places_parallel_strategy_fills(
     }
 
 
+def test_dashboard_paper_trader_does_not_record_cooldown_as_risk_event(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        notional_usdt=25.0,
+        cooldown_ms=120_000,
+    )
+    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_030_000, 100, 103, 99, 102, 12, closed=True)
+
+    trader.on_bar(first, now_ms=first.ts)
+    handles = trader.on_bar(second, now_ms=second.ts)
+
+    risk_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM risk_events").fetchone()
+    assert handles == []
+    assert risk_count["n"] == 0
+
+
 def test_dashboard_trading_endpoints_expose_universe_matrix_and_recent_trades(
     tmp_path: Path,
     tmp_db: sqlite3.Connection,
