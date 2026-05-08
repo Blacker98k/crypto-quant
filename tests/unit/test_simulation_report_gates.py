@@ -341,3 +341,105 @@ def test_summarize_simulation_report_cli_enforces_rejection_and_risk_event_caps(
     assert result.returncode == 1
     assert "cycle 2 rejected 1 above allowed 0" in result.stderr
     assert "cycle 2 risk_events 2 above allowed 0" in result.stderr
+
+
+def test_validate_historical_report_cli_wraps_strict_historical_gates(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "historical.jsonl"
+    _write_report(
+        report_path,
+        [
+            {
+                "cycle": 1,
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {
+                    "bars": 24,
+                    "open_positions": 0,
+                    "rejected": 0,
+                    "risk_events": 0,
+                },
+            },
+            {
+                "cycle": 2,
+                "symbol": "ETHUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {
+                    "bars": 24,
+                    "open_positions": 0,
+                    "rejected": 0,
+                    "risk_events": 0,
+                },
+            },
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/validate_historical_report.py",
+            str(report_path),
+            "--symbols",
+            "BTCUSDT,ETHUSDT",
+            "--timeframes",
+            "1h",
+            "--min-bars-per-cycle",
+            "24",
+        ],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    summary = json.loads(result.stdout)
+    assert summary["symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert summary["timeframes"] == ["1h"]
+
+
+def test_validate_historical_report_cli_rejects_missing_timeframe(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "historical.jsonl"
+    _write_report(
+        report_path,
+        [
+            {
+                "cycle": 1,
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {
+                    "bars": 24,
+                    "open_positions": 0,
+                    "rejected": 0,
+                    "risk_events": 0,
+                },
+            }
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/validate_historical_report.py",
+            str(report_path),
+            "--symbols",
+            "BTCUSDT",
+            "--timeframes",
+            "1h,4h",
+            "--min-bars-per-cycle",
+            "24",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 1
+    assert "missing required timeframe: 4h" in result.stderr
