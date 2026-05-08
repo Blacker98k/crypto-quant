@@ -566,6 +566,24 @@ def test_dashboard_data_health_endpoint_ignores_stale_failures_by_default(
     assert payload["recent_failures"] == []
 
 
+def test_dashboard_data_health_endpoint_reports_live_feed_ok_without_recent_logs(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+
+    payload = _call_route(app, "/api/data_health", limit=10, since_ms=None)
+
+    assert payload["status"] == "ok"
+    assert payload["live_feed"] == {
+        "status": "ok",
+        "simulation_running": True,
+        "ws_connected": True,
+        "market_data_stale": False,
+        "bars_received": 7,
+        "last_bar_age_ms": 0,
+    }
+
+
 def test_dashboard_positions_use_open_positions_table(
     tmp_path: Path, tmp_db: sqlite3.Connection
 ) -> None:

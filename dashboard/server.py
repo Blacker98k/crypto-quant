@@ -616,7 +616,14 @@ def create_app(
             if since_ms is None
             else since_ms
         )
-        return summarize_market_health(repo, limit=limit, since_ms=start_ms)
+        payload = summarize_market_health(repo, limit=limit, since_ms=start_ms)
+        live_feed = _live_feed_health(feeder)
+        payload["live_feed"] = live_feed
+        if live_feed["status"] == "degraded":
+            payload["status"] = "degraded"
+        elif payload["status"] == "idle" and live_feed["status"] == "ok":
+            payload["status"] = "ok"
+        return payload
 
     @app.get("/api/strategies")
     def api_strategies():
@@ -899,6 +906,22 @@ def _feeder_market_data_stale(feeder: LiveDataFeeder) -> bool:
         return False
     stale_after_ms = int(getattr(feeder, "_bar_stale_after_ms", 120_000) or 120_000)
     return age_ms > stale_after_ms
+
+
+def _live_feed_health(feeder: LiveDataFeeder) -> dict[str, object]:
+    ws = getattr(feeder, "_ws", None)
+    simulation_running = bool(getattr(feeder, "_running", False))
+    ws_connected = bool(getattr(ws, "_running", False))
+    market_data_stale = _feeder_market_data_stale(feeder)
+    status = "ok" if simulation_running and ws_connected and not market_data_stale else "degraded"
+    return {
+        "status": status,
+        "simulation_running": simulation_running,
+        "ws_connected": ws_connected,
+        "market_data_stale": market_data_stale,
+        "bars_received": int(getattr(feeder, "_bar_counter", 0) or 0),
+        "last_bar_age_ms": _feeder_last_bar_age_ms(feeder),
+    }
 
 
 def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
