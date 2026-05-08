@@ -11,7 +11,7 @@ from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.execution.paper_engine import PaperMatchingEngine
-from dashboard.server import _apply_rest_price_rows, create_app
+from dashboard.server import _apply_rest_price_rows, _apply_ticker_24h_rows, create_app
 
 
 class _DummyWs:
@@ -243,6 +243,28 @@ def test_dashboard_prices_include_freshness_metadata(
     assert isinstance(payload["BTCUSDT"]["age_ms"], int)
 
 
+def test_dashboard_prices_prefer_24h_ticker_stats(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+    app.state.cache.update_latest_price("BTCUSDT", 50_123.45, source_ts=1_700_000_000_000)
+    app.state.feeder._ticker_24h = {
+        "BTCUSDT": {
+            "change_24h": 2.34,
+            "high_24h": 51_000.0,
+            "low_24h": 49_000.0,
+            "quote_volume": 123_456_789.0,
+        }
+    }
+
+    payload = _call_route(app, "/api/prices")
+
+    assert payload["BTCUSDT"]["change_24h"] == 2.34
+    assert payload["BTCUSDT"]["high_24h"] == 51_000.0
+    assert payload["BTCUSDT"]["low_24h"] == 49_000.0
+    assert payload["BTCUSDT"]["quote_volume"] == 123_456_789.0
+
+
 def test_dashboard_price_history_backfills_parquet_when_cache_is_short(
     tmp_path: Path, tmp_db: sqlite3.Connection
 ) -> None:
@@ -299,4 +321,40 @@ def test_apply_rest_price_rows_updates_latest_price_metadata() -> None:
     assert cache.latest_price_meta("BTCUSDT") == {
         "source_ts": 1_700_000_123_000,
         "updated_at": 1_700_000_123_000,
+    }
+
+
+def test_apply_rest_price_rows_can_filter_to_dashboard_universe() -> None:
+    cache = MemoryCache(max_bars=10)
+
+    _apply_rest_price_rows(
+        cache,
+        [{"symbol": "BTCUSDT", "price": "50100.25"}, {"symbol": "NOTUSDT", "price": "1.0"}],
+        captured_at_ms=1_700_000_123_000,
+        allowed_symbols={"BTCUSDT"},
+    )
+
+    assert cache.latest_prices_all() == {"BTCUSDT": 50_100.25}
+
+
+def test_apply_ticker_24h_rows_normalizes_binance_payload() -> None:
+    rows = [
+        {
+            "symbol": "BTCUSDT",
+            "priceChangePercent": "2.345",
+            "highPrice": "51000.5",
+            "lowPrice": "49000.25",
+            "quoteVolume": "123456789.12",
+        }
+    ]
+
+    payload = _apply_ticker_24h_rows(rows)
+
+    assert payload == {
+        "BTCUSDT": {
+            "change_24h": 2.35,
+            "high_24h": 51_000.5,
+            "low_24h": 49_000.25,
+            "quote_volume": 123_456_789.12,
+        }
     }

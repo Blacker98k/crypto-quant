@@ -46,7 +46,8 @@ from dashboard.paper_trading import (
 # 代理配置（根据环境变量或写死）
 _PROXY = "http://127.0.0.1:57777"
 _SYMBOLS = DEFAULT_TOP30_USDT
-_SPOT_PRICE_URL = "https://api.binance.com/api/v3/ticker/price"
+_FUTURES_PRICE_URL = "https://fapi.binance.com/fapi/v1/ticker/price"
+_FUTURES_24H_URL = "https://fapi.binance.com/fapi/v1/ticker/24hr"
 
 
 # ─── 工兛函数 ──────────────────────────────────────────────────────────────────
@@ -80,9 +81,12 @@ def _apply_rest_price_rows(
     rows: list[dict],
     *,
     captured_at_ms: int,
+    allowed_symbols: set[str] | None = None,
 ) -> None:
     for row in rows:
         symbol = str(row.get("symbol") or "")
+        if allowed_symbols is not None and symbol not in allowed_symbols:
+            continue
         price = float(row.get("price") or 0)
         if symbol and price > 0:
             cache.update_latest_price(
@@ -91,6 +95,24 @@ def _apply_rest_price_rows(
                 source_ts=captured_at_ms,
                 updated_at_ms=captured_at_ms,
             )
+
+
+def _apply_ticker_24h_rows(rows: list[dict]) -> dict[str, dict[str, float]]:
+    stats = {}
+    for row in rows:
+        symbol = str(row.get("symbol") or "")
+        if not symbol:
+            continue
+        try:
+            stats[symbol] = {
+                "change_24h": round(float(row.get("priceChangePercent") or 0.0), 2),
+                "high_24h": float(row.get("highPrice") or 0.0),
+                "low_24h": float(row.get("lowPrice") or 0.0),
+                "quote_volume": float(row.get("quoteVolume") or 0.0),
+            }
+        except (TypeError, ValueError):
+            continue
+    return stats
 
 
 class LiveDataFeeder:
@@ -120,6 +142,7 @@ class LiveDataFeeder:
         self._running = False
         self._task: asyncio.Task | None = None
         self._price_task: asyncio.Task | None = None
+        self._ticker_24h: dict[str, dict[str, float]] = {}
 
     async def _lazy_load_exchange(self) -> None:
         """后台加载交易所 adapter（不阻塞启动）。"""
@@ -199,13 +222,34 @@ class LiveDataFeeder:
         timeout = aiohttp.ClientTimeout(total=5)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(
-                _SPOT_PRICE_URL,
+                _FUTURES_PRICE_URL,
                 params=params,
                 proxy=self._proxy or None,
             ) as resp:
                 resp.raise_for_status()
                 rows = await resp.json()
-        _apply_rest_price_rows(self._cache, rows, captured_at_ms=captured_at_ms)
+        _apply_rest_price_rows(
+            self._cache,
+            rows,
+            captured_at_ms=captured_at_ms,
+            allowed_symbols=set(self._symbols),
+        )
+        await self._refresh_24h_tickers()
+
+    async def _refresh_24h_tickers(self) -> None:
+        import aiohttp
+
+        params = {"symbols": json.dumps(self._symbols)}
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                _FUTURES_24H_URL,
+                params=params,
+                proxy=self._proxy or None,
+            ) as resp:
+                resp.raise_for_status()
+                rows = await resp.json()
+        self._ticker_24h = _apply_ticker_24h_rows(rows)
 
     async def _refresh_universe(self) -> None:
         try:
@@ -302,6 +346,7 @@ def create_app(
         price_meta = cache.latest_price_meta_all()
         now_ms = int(time.time() * 1000)
         result = {}
+        ticker_24h = getattr(feeder, "_ticker_24h", {})
         for sym, price in prices.items():
             bars = cache.get_bars(sym, "1h", n=24)
             change_24h, high_24h, low_24h = 0.0, price, price
@@ -311,6 +356,11 @@ def create_app(
                     change_24h = round((price - prev) / prev * 100, 2)
                 high_24h = max(b.h for b in bars)
                 low_24h = min(b.l for b in bars)
+            if sym in ticker_24h:
+                stats = ticker_24h[sym]
+                change_24h = stats.get("change_24h", change_24h)
+                high_24h = stats.get("high_24h", high_24h)
+                low_24h = stats.get("low_24h", low_24h)
             meta = price_meta.get(sym, {})
             updated_at = meta.get("updated_at")
             age_ms = max(0, now_ms - int(updated_at)) if updated_at is not None else None
@@ -322,6 +372,7 @@ def create_app(
                 "source_ts": meta.get("source_ts"),
                 "updated_at": updated_at,
                 "age_ms": age_ms,
+                "quote_volume": ticker_24h.get(sym, {}).get("quote_volume", 0.0),
             }
         return result
 
