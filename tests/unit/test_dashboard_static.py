@@ -39,6 +39,13 @@ def test_dashboard_static_page_uses_full_width_trading_terminal_layout() -> None
     assert "mx-auto" not in html
 
 
+def test_dashboard_static_page_does_not_load_tailwind_cdn() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "cdn.tailwindcss.com" not in html
+    assert "tailwindcss.com" not in html
+
+
 def test_dashboard_static_page_avoids_emoji_action_icons() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
