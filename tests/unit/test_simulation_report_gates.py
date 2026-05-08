@@ -127,3 +127,46 @@ def test_summarize_simulation_report_cli_accepts_strict_live_source(
     )
 
     assert json.loads(result.stdout)["price_sources"] == ["binance_usdm_public_ticker"]
+
+
+def test_summarize_simulation_report_cli_enforces_symbol_and_reason_gates(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "historical.jsonl"
+    _write_report(
+        report_path,
+        [
+            {
+                "cycle": 1,
+                "symbol": "BTCUSDT",
+                "price_source": "historical_parquet",
+                "reason": "insufficient_bars",
+                "passed": False,
+                "result": {"bars": 24, "orders": 0},
+            }
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/summarize_simulation_report.py",
+            str(report_path),
+            "--require-symbol",
+            "BTCUSDT",
+            "--require-symbol",
+            "ETHUSDT",
+            "--forbid-reason",
+            "insufficient_bars",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["symbols"] == ["BTCUSDT"]
+    assert summary["reasons"] == ["insufficient_bars"]
+    assert "missing required symbol: ETHUSDT" in result.stderr
+    assert "forbidden reason matched: insufficient_bars" in result.stderr

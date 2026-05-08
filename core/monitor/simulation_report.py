@@ -56,7 +56,7 @@ def summarize_simulation_cycles(rows: list[dict[str, Any]]) -> dict[str, Any]:
             if isinstance(value, int | float):
                 totals[key] = totals.get(key, 0) + value
     cycles = len(rows)
-    return {
+    summary = {
         "cycles": cycles,
         "passed": passed,
         "failed": cycles - passed,
@@ -67,6 +67,10 @@ def summarize_simulation_cycles(rows: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "totals": totals,
     }
+    reasons = sorted({str(row["reason"]) for row in rows if "reason" in row})
+    if reasons:
+        summary["reasons"] = reasons
+    return summary
 
 
 def summarize_simulation_report(path: Path) -> dict[str, Any]:

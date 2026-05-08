@@ -51,6 +51,18 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Exit non-zero unless every cycle used this exact price source.",
     )
+    parser.add_argument(
+        "--require-symbol",
+        action="append",
+        default=[],
+        help="Exit non-zero unless the summary includes this symbol. Repeatable.",
+    )
+    parser.add_argument(
+        "--forbid-reason",
+        action="append",
+        default=[],
+        help="Exit non-zero if any cycle has this reason. Repeatable.",
+    )
     return parser.parse_args()
 
 
@@ -85,9 +97,21 @@ def main() -> None:
         failed = True
 
     price_sources = {str(source) for source in summary.get("price_sources", [])}
+    symbols = {str(symbol) for symbol in summary.get("symbols", [])}
+    reasons = {str(reason) for reason in summary.get("reasons", [])}
     for required in args.require_price_source:
         if required not in price_sources:
             print(f"missing required price source: {required}", file=sys.stderr)
+            failed = True
+
+    for required in args.require_symbol:
+        if required not in symbols:
+            print(f"missing required symbol: {required}", file=sys.stderr)
+            failed = True
+
+    for reason in args.forbid_reason:
+        if reason in reasons:
+            print(f"forbidden reason matched: {reason}", file=sys.stderr)
             failed = True
 
     for prefix in args.forbid_price_source_prefix:
