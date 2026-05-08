@@ -681,26 +681,33 @@ def _feeder_running(feeder: LiveDataFeeder) -> bool:
 
 
 def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
-    fills_rows = repo._conn.execute(
-        "SELECT o.symbol_id, o.side, o.strategy_version, s.symbol as sym, "
-        "SUM(f.quantity) as total_qty, "
-        "SUM(f.price * f.quantity) / NULLIF(SUM(f.quantity), 0) as avg_price "
-        "FROM fills f JOIN orders o ON f.order_id = o.id "
-        "LEFT JOIN symbols s ON o.symbol_id = s.id "
-        "GROUP BY o.symbol_id, o.side, o.strategy_version"
-    ).fetchall()
     positions = []
-    for r in fills_rows:
-        qty = r["total_qty"]
-        entry = r["avg_price"]
-        sym = r["sym"] or "BTCUSDT"
+    for row in repo.list_open_positions():
+        symbol = repo.get_symbol_by_id(int(row["symbol_id"]))
+        sym = str(symbol["symbol"]) if symbol is not None else "BTCUSDT"
+        qty = float(row["qty"])
+        entry = float(row["avg_entry_price"])
         cur = cache.latest_price(sym) or entry
-        unrealized = round(qty * (cur - entry), 2)
-        positions.append({
-            "symbol": sym, "side": r["side"], "strategy": r["strategy_version"],
-            "qty": round(qty, 6), "entry_price": round(entry, 2),
-            "current_price": round(cur, 2), "unrealized_pnl": unrealized,
-        })
+        position_side = str(row["side"])
+        if position_side == "long":
+            side = "buy"
+            unrealized = qty * (cur - entry)
+        else:
+            side = "sell"
+            unrealized = qty * (entry - cur)
+        positions.append(
+            {
+                "symbol": sym,
+                "side": side,
+                "position_side": position_side,
+                "strategy": row["strategy_version"],
+                "qty": round(qty, 6),
+                "entry_price": round(entry, 2),
+                "current_price": round(cur, 2),
+                "unrealized_pnl": round(unrealized, 2),
+                "realized_pnl": round(float(row["realized_pnl"] or 0.0), 2),
+            }
+        )
     return positions
 
 

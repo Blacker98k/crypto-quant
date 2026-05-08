@@ -11,7 +11,12 @@ from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.execution.paper_engine import PaperMatchingEngine
-from dashboard.server import _apply_rest_price_rows, _apply_ticker_24h_rows, create_app
+from dashboard.server import (
+    _apply_rest_price_rows,
+    _apply_ticker_24h_rows,
+    _compute_positions,
+    create_app,
+)
 
 
 class _DummyWs:
@@ -227,6 +232,91 @@ def test_dashboard_data_health_endpoint_summarizes_run_log(
     assert payload["by_status"] == {"fail": 1, "ok": 1}
     assert payload["endpoints"] == ["binance_usdm_public_ticker"]
     assert payload["recent_failures"][0]["note"] == "timeout"
+
+
+def test_dashboard_positions_use_open_positions_table(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "type": "perp",
+                "base": "BTC",
+                "quote": "USDT",
+                "tick_size": 0.1,
+                "lot_size": 0.001,
+                "min_notional": 10.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "explore_momentum",
+            "strategy_version": "explore_momentum",
+            "opening_signal_id": None,
+            "side": "long",
+            "qty": 0.1,
+            "avg_entry_price": 50_000.0,
+            "current_price": 50_000.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": None,
+            "opened_at": 1_700_000_000_000,
+            "closed_at": None,
+        }
+    )
+    repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "explore_momentum",
+            "strategy_version": "explore_momentum",
+            "opening_signal_id": None,
+            "side": "short",
+            "qty": 0.2,
+            "avg_entry_price": 51_000.0,
+            "current_price": 51_000.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 12.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": None,
+            "opened_at": 1_700_000_000_000,
+            "closed_at": 1_700_000_060_000,
+        }
+    )
+    cache = MemoryCache(max_bars=10)
+    cache.update_latest_price("BTCUSDT", 50_500.0)
+    app = _build_app(tmp_path, tmp_db)
+    app.state.cache = cache
+
+    payload = _compute_positions(repo, cache)
+
+    assert payload == [
+        {
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "position_side": "long",
+            "strategy": "explore_momentum",
+            "qty": 0.1,
+            "entry_price": 50_000.0,
+            "current_price": 50_500.0,
+            "unrealized_pnl": 50.0,
+            "realized_pnl": 0.0,
+        }
+    ]
 
 
 def test_dashboard_prices_include_freshness_metadata(
