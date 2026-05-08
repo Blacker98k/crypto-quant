@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -30,6 +30,7 @@
     margin:0;
     min-width:320px;
     min-height:100vh;
+    overflow:hidden;
     background:
       linear-gradient(180deg,#eef5ff 0,#f7f9fc 38%,#f4f7fb 100%);
     color:var(--text);
@@ -72,13 +73,75 @@
   .terminal-shell {
     width:100%;
     min-height:100vh;
-    padding:12px;
-    background:var(--bg);
-    display:flex;
-    flex-direction:column;
-    gap:8px;
+    height:100vh;
+    padding:0;
+    background:#edf3fb;
+    display:grid;
+    grid-template-columns:82px minmax(0,1fr);
+    gap:0;
   }
   .terminal-shell > * + * { margin-top:0 !important; }
+  .studio-rail {
+    position:sticky;
+    top:0;
+    height:100vh;
+    padding:14px 10px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:12px;
+    background:#0f172a;
+    color:#fff;
+    box-shadow:14px 0 36px rgba(15,23,42,.16);
+    z-index:5;
+  }
+  .rail-logo {
+    width:46px;
+    height:46px;
+    display:grid;
+    place-items:center;
+    border-radius:8px;
+    background:#fff;
+    color:#0f172a;
+    font-weight:900;
+  }
+  .rail-item {
+    width:46px;
+    height:46px;
+    display:grid;
+    place-items:center;
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:8px;
+    background:rgba(255,255,255,.06);
+    color:rgba(255,255,255,.72);
+    font-size:12px;
+    font-weight:800;
+  }
+  .rail-item.active {
+    background:#2563eb;
+    color:#fff;
+    border-color:#2563eb;
+  }
+  .rail-status {
+    margin-top:auto;
+    writing-mode:vertical-rl;
+    color:rgba(255,255,255,.66);
+    font-size:12px;
+    letter-spacing:0;
+  }
+  .studio-main {
+    min-width:0;
+    min-height:100vh;
+    height:100vh;
+    overflow:auto;
+    padding:12px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    background:
+      radial-gradient(circle at 12% 0,rgba(37,99,235,.13),transparent 28%),
+      linear-gradient(180deg,#f8fbff,#eef4fb 72%,#edf3fb);
+  }
   .panel {
     background:#fff;
     border:1px solid var(--line);
@@ -449,7 +512,8 @@
   .research-side .table-wrap {
     max-height:220px;
   }
-  #app > section.panel { order:5; }
+  #app > section.panel,
+  .studio-main > section.panel { order:5; }
   @media (max-width:1280px) {
     .exchange-grid {
       grid-template-columns:minmax(0,1fr) 310px;
@@ -474,8 +538,12 @@
     }
   }
   @media (max-width:760px) {
-    .terminal-shell { padding:8px; gap:8px; }
-    .command-center { align-items:flex-start; gap:8px; }
+    .terminal-shell { grid-template-columns:58px minmax(0,1fr); }
+    .studio-rail { padding:10px 6px; }
+    .rail-logo,
+    .rail-item { width:38px; height:38px; }
+    .studio-main { padding:8px; gap:8px; }
+    .command-center { display:none; }
     .chart-toolbar { grid-template-columns:1fr; }
     .exchange-grid {
       grid-template-columns:1fr;
@@ -510,6 +578,15 @@
 </head>
 <body>
 <div id="app" class="terminal-shell space-y-2">
+  <aside class="studio-rail" aria-label="quant workspace navigation">
+    <div class="rail-logo">CQ</div>
+    <div class="rail-item active">MKT</div>
+    <div class="rail-item">STR</div>
+    <div class="rail-item">POS</div>
+    <div class="rail-item">RSK</div>
+    <div class="rail-status">{{isRunning ? 'RUNNING' : 'STOPPED'}}</div>
+  </aside>
+  <div class="studio-main">
   <header class="command-center">
     <div class="brand-lockup">
       <div class="brand-mark">CQ</div>
@@ -774,6 +851,7 @@
       <div class="metric-card"><div class="label">最大延迟</div><div class="value">{{dataHealth.latency_ms.max ?? '-'}} ms</div></div>
     </div>
   </section>
+  </div>
 </div>
 
 <script>
