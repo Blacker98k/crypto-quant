@@ -285,6 +285,7 @@ class DashboardPaperTrader:
         symbols: list[str],
         strategies: list[_StrategyLike] | None = None,
         notional_usdt: float = 20.0,
+        strategy_notional_multipliers: dict[str, float] | None = None,
         cooldown_ms: int = 120_000,
         max_orders_per_symbol: int = 120,
         order_cap_window_ms: int = 60 * 60 * 1000,
@@ -295,6 +296,10 @@ class DashboardPaperTrader:
         self._symbols = list(dict.fromkeys(symbols))
         self._strategies = strategies or default_exploration_strategies()
         self._notional_usdt = max(notional_usdt, 5.0)
+        self._strategy_notional_multipliers = {
+            strategy: max(float(multiplier), 0.0)
+            for strategy, multiplier in (strategy_notional_multipliers or {}).items()
+        }
         self._cooldown_ms = max(cooldown_ms, 0)
         self._max_orders_per_symbol = max(max_orders_per_symbol, 1)
         self._order_cap_window_ms = max(order_cap_window_ms, 60_000)
@@ -411,7 +416,7 @@ class DashboardPaperTrader:
             evaluation["throttle_reason"] = "symbol_order_cap"
             evaluation["order_cap_window_ms"] = self._order_cap_window_ms
             return None
-        quantity = self._round_qty(signal.symbol, self._notional_usdt / price)
+        quantity = self._round_qty(signal.symbol, self._notional_for_strategy(strategy_name) / price)
         if quantity * price < 5.0:
             self._record_risk("min_notional", "warn", strategy_name, signal, now_ms)
             return None
@@ -507,6 +512,10 @@ class DashboardPaperTrader:
             (symbol, since_ms),
         ).fetchone()
         return int(row["n"] or 0)
+
+    def _notional_for_strategy(self, strategy_name: str) -> float:
+        multiplier = self._strategy_notional_multipliers.get(strategy_name, 1.0)
+        return max(self._notional_usdt * multiplier, 5.0)
 
     def _round_qty(self, symbol: str, quantity: float) -> float:
         row = self._repo.get_symbol(symbol)

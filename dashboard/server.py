@@ -1022,7 +1022,13 @@ def main() -> None:
     # 3. 创建 PaperMatchingEngine
     upsert_dashboard_universe(repo, _SYMBOLS)
     engine = PaperMatchingEngine(repo, get_price=lambda s: cache.latest_price(s))
-    trader = DashboardPaperTrader(repo=repo, cache=cache, engine=engine, symbols=_SYMBOLS)
+    trader = DashboardPaperTrader(
+        repo=repo,
+        cache=cache,
+        engine=engine,
+        symbols=_SYMBOLS,
+        strategy_notional_multipliers={"explore_mean_reversion": 0.5},
+    )
 
     # 4. 创建 LiveFeed 并启动（后台任务在 uvicorn 事件循环中运行）
     feeder = LiveDataFeeder(cache, parquet_io, repo, engine, trader=trader, proxy=_PROXY)

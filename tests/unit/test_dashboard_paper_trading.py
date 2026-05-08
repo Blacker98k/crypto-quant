@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 
 from core.data.exchange.base import Bar
@@ -182,6 +183,44 @@ def test_dashboard_paper_trader_places_parallel_strategy_fills(
         "explore_mean_reversion",
         "explore_volatility",
     }
+
+
+def test_dashboard_paper_trader_scales_notional_by_strategy(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[
+            ExplorationStrategy("explore_momentum", min_bars=2),
+            ExplorationStrategy("explore_mean_reversion", min_bars=2),
+        ],
+        notional_usdt=25.0,
+        strategy_notional_multipliers={"explore_mean_reversion": 0.5},
+        cooldown_ms=0,
+    )
+    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 103, 99, 102, 12, closed=True)
+
+    trader.on_bar(first, now_ms=first.ts)
+    trader.on_bar(second, now_ms=second.ts)
+
+    rows = sqlite_repo._conn.execute(
+        "SELECT o.strategy_version, f.price * f.quantity AS notional "
+        "FROM fills f JOIN orders o ON f.order_id = o.id"
+    ).fetchall()
+    notional_by_strategy = {row["strategy_version"]: row["notional"] for row in rows}
+
+    assert notional_by_strategy["explore_mean_reversion"] < notional_by_strategy["explore_momentum"]
+    assert notional_by_strategy["explore_mean_reversion"] == pytest.approx(
+        notional_by_strategy["explore_momentum"] * 0.5,
+        rel=0.02,
+    )
 
 
 def test_dashboard_paper_trader_does_not_record_cooldown_as_risk_event(
