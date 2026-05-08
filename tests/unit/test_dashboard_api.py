@@ -11,7 +11,7 @@ from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.execution.paper_engine import PaperMatchingEngine
-from dashboard.server import create_app
+from dashboard.server import _apply_rest_price_rows, create_app
 
 
 class _DummyWs:
@@ -283,3 +283,20 @@ def test_dashboard_price_history_backfills_parquet_when_cache_is_short(
     assert [row["ts"] for row in payload] == [base_ts + index * 60_000 for index in range(2, 12)]
     assert payload[-1]["c"] == 211.5
     assert payload[-4]["c"] == 208.5
+
+
+def test_apply_rest_price_rows_updates_latest_price_metadata() -> None:
+    cache = MemoryCache(max_bars=10)
+
+    _apply_rest_price_rows(
+        cache,
+        [{"symbol": "BTCUSDT", "price": "50100.25"}, {"symbol": "ETHUSDT", "price": "2500.5"}],
+        captured_at_ms=1_700_000_123_000,
+    )
+
+    assert cache.latest_price("BTCUSDT") == 50_100.25
+    assert cache.latest_price("ETHUSDT") == 2_500.5
+    assert cache.latest_price_meta("BTCUSDT") == {
+        "source_ts": 1_700_000_123_000,
+        "updated_at": 1_700_000_123_000,
+    }

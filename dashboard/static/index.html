@@ -10,10 +10,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   :root {
-    --bg:#f4f7fb;
+    --bg:#eef3f8;
     --panel:#ffffff;
     --panel-2:#f8fafc;
-    --line:#d7e0ea;
+    --line:#d9e2ec;
     --muted:#64748b;
     --text:#0f172a;
     --accent:#16a34a;
@@ -25,35 +25,91 @@
   body {
     margin:0;
     min-width:320px;
-    background:linear-gradient(180deg,#eef4fb 0%,var(--bg) 260px);
+    background:
+      linear-gradient(180deg,#e7eef7 0%,#f5f8fb 330px,#edf3f8 100%),
+      radial-gradient(circle at 20% 0%,rgba(37,99,235,.10),transparent 28%);
     color:var(--text);
     font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
     font-variant-numeric:tabular-nums;
   }
-  .terminal-shell { width:100%; min-height:100vh; padding:12px; }
+  .terminal-shell { width:100%; min-height:100vh; padding:16px; }
   .panel {
-    background:linear-gradient(180deg,#ffffff,#f9fbfe);
+    background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%);
     border:1px solid var(--line);
-    border-radius:8px;
-    box-shadow:0 10px 28px rgba(15,23,42,.08);
+    border-radius:10px;
+    box-shadow:0 18px 48px rgba(15,23,42,.10);
+  }
+  .command-center {
+    position:relative;
+    overflow:hidden;
+    background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%);
+    border:1px solid #d6e2ee;
+    border-radius:10px;
+    box-shadow:0 18px 48px rgba(15,23,42,.10);
+  }
+  .command-center::before {
+    content:"";
+    position:absolute;
+    inset:0 auto 0 0;
+    width:5px;
+    background:linear-gradient(180deg,#2563eb,#16a34a);
+  }
+  .brand-lockup {
+    display:flex;
+    align-items:center;
+    gap:12px;
+    min-width:260px;
+  }
+  .brand-mark {
+    width:42px;
+    height:42px;
+    display:grid;
+    place-items:center;
+    border-radius:10px;
+    background:#0f172a;
+    color:#ffffff;
+    font-size:13px;
+    font-weight:800;
+    letter-spacing:0;
+    box-shadow:0 12px 28px rgba(15,23,42,.18);
   }
   .panel-head {
     min-height:42px;
-    padding:10px 12px;
+    padding:11px 14px;
     border-bottom:1px solid var(--line);
     display:flex;
     align-items:center;
     justify-content:space-between;
     gap:10px;
   }
-  .panel-body { padding:12px; }
+  .panel-body { padding:14px; }
   .metric {
     min-height:74px;
     padding:12px;
     background:var(--panel-2);
     border:1px solid #dbe4ee;
-    border-radius:8px;
+    border-radius:10px;
   }
+  .metric-grid { gap:12px; }
+  .metric-card {
+    position:relative;
+    overflow:hidden;
+    background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+    border:1px solid #d8e3ee;
+    box-shadow:0 10px 26px rgba(15,23,42,.06);
+  }
+  .metric-card::after {
+    content:"";
+    position:absolute;
+    left:0;
+    right:0;
+    top:0;
+    height:3px;
+    background:linear-gradient(90deg,#2563eb,#14b8a6);
+    opacity:.75;
+  }
+  .metric-card:nth-child(3n)::after { background:linear-gradient(90deg,#16a34a,#22c55e); }
+  .metric-card:nth-child(4n)::after { background:linear-gradient(90deg,#d97706,#f59e0b); }
   .label {
     color:var(--muted);
     font-size:11px;
@@ -99,6 +155,18 @@
     border:1px solid transparent;
     white-space:nowrap;
   }
+  .toolbar-group {
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+    width:max-content;
+    max-width:100%;
+    padding:6px;
+    border:1px solid #dbe4ee;
+    border-radius:10px;
+    background:#f8fafc;
+  }
   .badge-paper{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
   .badge-buy{background:#dcfce7;color:#047857;border-color:#bbf7d0}
   .badge-sell{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
@@ -111,7 +179,7 @@
   .btn {
     min-height:36px;
     padding:7px 13px;
-    border-radius:7px;
+    border-radius:8px;
     border:1px solid var(--line);
     cursor:pointer;
     font-size:13px;
@@ -146,11 +214,18 @@
   }
   tbody tr:hover td { background:rgba(37,99,235,.05); }
   .table-wrap { overflow:auto; max-height:430px; border-radius:0 0 8px 8px; }
+  .market-workbench {
+    display:grid;
+    grid-template-columns:minmax(0,2fr) 420px;
+    gap:12px;
+  }
+  .chart-card { overflow:hidden; }
+  .chart-card .panel-body { padding:0 14px 14px; }
   .chart-shell {
     position:relative;
-    height:520px;
+    height:560px;
     min-height:360px;
-    border-radius:8px;
+    border-radius:10px;
     border:1px solid #dbe4ee;
     background:
       linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.96)),
@@ -164,9 +239,16 @@
     grid-template-columns:minmax(0,1fr) auto;
     gap:12px;
     align-items:center;
-    padding:12px;
+    padding:14px;
+    border-bottom:1px solid #edf2f7;
   }
-  .chart-price { font-size:28px; line-height:1; font-weight:800; color:#0f172a; }
+  .chart-title-row {
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+  }
+  .chart-price { font-size:32px; line-height:1; font-weight:850; color:#0f172a; letter-spacing:0; }
   .chart-chip {
     display:inline-flex;
     align-items:center;
@@ -180,6 +262,21 @@
     font-size:12px;
     font-weight:700;
   }
+  .side-stack { display:grid; gap:12px; align-content:start; }
+  .market-tile {
+    border-radius:10px;
+    border:1px solid #dbe4ee;
+    background:#ffffff;
+    padding:12px;
+    box-shadow:0 8px 20px rgba(15,23,42,.05);
+  }
+  .mini-stat {
+    min-height:78px;
+    border-radius:10px;
+    border:1px solid #dbe4ee;
+    background:linear-gradient(180deg,#ffffff,#f8fbff);
+    padding:12px;
+  }
   .fresh-dot { width:7px; height:7px; border-radius:999px; background:#16a34a; box-shadow:0 0 0 3px rgba(22,163,74,.12); }
   .fresh-dot.slow { background:#d97706; box-shadow:0 0 0 3px rgba(217,119,6,.14); }
   .balance-box { height:210px; min-height:180px; }
@@ -189,25 +286,32 @@
     gap:12px;
   }
   @media (max-width:1280px) {
+    .market-workbench { grid-template-columns:1fr; }
     .operations-grid { grid-template-columns:1fr; }
-    .chart-shell { height:430px; }
+    .chart-shell { height:460px; }
   }
   @media (max-width:640px) {
-    .terminal-shell { padding:8px; }
+    .terminal-shell { padding:10px; }
     .panel-body { padding:10px; }
     .value { font-size:18px; }
+    .brand-lockup { min-width:0; }
+    .brand-mark { width:36px; height:36px; }
+    .chart-toolbar { grid-template-columns:1fr; }
   }
 </style>
 </head>
 <body>
 <div id="app" class="terminal-shell space-y-3">
-  <header class="panel">
+  <header class="command-center">
     <div class="panel-body">
       <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-3">
-          <div>
-            <div class="text-[11px] text-slate-500">crypto-quant</div>
-            <h1 class="text-xl lg:text-2xl font-bold leading-tight">实时量化交易工作台</h1>
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="brand-lockup">
+            <div class="brand-mark">CQ</div>
+            <div>
+              <div class="text-[11px] text-slate-500">crypto-quant</div>
+              <h1 class="text-xl lg:text-2xl font-bold leading-tight">实时量化交易工作台</h1>
+            </div>
           </div>
           <span class="badge badge-paper">纸上撮合</span>
           <span class="status-pill">
@@ -217,7 +321,7 @@
           <span class="subtle">行情连接 {{status.ws_connected ? '已连接' : '未连接'}} / 已接收 {{status.bars_received}} 根K线</span>
           <span class="subtle">数据源 Binance 公共行情 / 禁止真实下单</span>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="toolbar-group">
           <button class="btn btn-primary" @click="startSim" v-if="!isRunning">启动模拟</button>
           <button class="btn btn-danger" @click="stopSim" v-else>停止模拟</button>
           <button class="btn btn-secondary" @click="randomOrder">随机下单</button>
@@ -227,71 +331,71 @@
     </div>
   </header>
 
-  <section class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-12 gap-3">
-    <div class="metric">
+  <section class="metric-grid grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-12">
+    <div class="metric metric-card">
       <div class="label">组合价值</div>
       <div class="value">${{fmt(status.portfolio_value)}}</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">USDT 余额</div>
       <div class="value">${{fmt(status.usdt_balance)}}</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">本日盈亏</div>
       <div class="value" :class="signClass(status.day_pnl.pnl)">{{status.day_pnl.pnl>=0?'+':''}}{{fmt(status.day_pnl.pnl)}}</div>
       <div class="subtle">{{status.day_pnl.n}} 笔成交</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">本周盈亏</div>
       <div class="value" :class="signClass(status.week_pnl.pnl)">{{status.week_pnl.pnl>=0?'+':''}}{{fmt(status.week_pnl.pnl)}}</div>
       <div class="subtle">{{status.week_pnl.n}} 笔成交</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">持仓 / 挂单</div>
       <div class="value">{{status.open_positions_n}} / {{status.open_orders_n}}</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">持仓名义额</div>
       <div class="value">${{fmt(paperMetrics.positions.open_notional)}}</div>
       <div class="subtle">当前持仓 {{paperMetrics.positions.open || 0}}</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">行情覆盖</div>
       <div class="value">{{Object.keys(status.latest_prices || {}).length || Object.keys(prices).length}}</div>
       <div class="subtle">BTC / ETH 公共行情</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">订单总数</div>
       <div class="value">{{paperMetrics.orders.total || 0}}</div>
       <div class="subtle">挂单 {{status.open_orders_n || 0}}</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">成交笔数</div>
       <div class="value">{{paperMetrics.fills.total || 0}}</div>
       <div class="subtle">今日 {{status.day_pnl.n || 0}}</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">成交名义额</div>
       <div class="value">${{fmt(paperMetrics.fills.filled_notional)}}</div>
       <div class="subtle">费用 ${{fmt(paperMetrics.fills.fees)}}</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">现金盈亏</div>
       <div class="value" :class="signClass(paperMetrics.fills.cash_pnl)">{{paperMetrics.fills.cash_pnl>=0?'+':''}}${{fmt(paperMetrics.fills.cash_pnl)}}</div>
       <div class="subtle">已成交现金流</div>
     </div>
-    <div class="metric">
+    <div class="metric metric-card">
       <div class="label">风险事件</div>
       <div class="value">{{status.risk_events_n || 0}}</div>
       <div class="subtle">严重 {{status.critical_risk_events_n || 0}} / 今日 {{paperMetrics.risk_events.total}}</div>
     </div>
   </section>
 
-  <main class="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_420px] gap-3">
-    <section class="panel min-w-0">
+  <main class="market-workbench">
+    <section class="panel chart-card min-w-0">
       <div class="chart-toolbar">
         <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-2">
+          <div class="chart-title-row">
             <div class="font-bold">专业K线</div>
             <span class="chart-chip">{{chartSymbol}} / {{chartTF}}</span>
             <span class="chart-chip"><span class="fresh-dot" :class="{slow: priceAgeMs(activePrice) > 3000}"></span>更新延迟 {{freshnessText(activePrice)}}</span>
@@ -302,7 +406,7 @@
             <div class="subtle">当前价 / 24小时涨跌 / 成交量 / 双均线</div>
           </div>
         </div>
-        <div class="flex flex-wrap items-center justify-end gap-2">
+        <div class="toolbar-group justify-end">
           <label class="sr-only" for="chart-symbol">交易对</label>
           <select id="chart-symbol" v-model="chartSymbol" @change="loadPriceHistory" class="btn btn-secondary">
             <option>BTCUSDT</option>
@@ -323,14 +427,14 @@
       </div>
     </section>
 
-    <aside class="space-y-3 min-w-0">
+    <aside class="side-stack min-w-0">
       <section class="panel">
         <div class="panel-head">
           <div class="font-bold">实时行情</div>
           <div class="subtle">{{Object.keys(prices).length}} 个交易对</div>
         </div>
         <div class="panel-body space-y-2">
-          <div v-for="(info,sym) in prices" :key="sym" class="metric min-h-0">
+          <div v-for="(info,sym) in prices" :key="sym" class="market-tile">
             <div class="flex items-start justify-between gap-3">
               <div>
                 <div class="text-sm font-bold">{{sym}}</div>
@@ -355,19 +459,19 @@
           <span class="badge badge-paper">只读行情</span>
         </div>
         <div class="panel-body grid grid-cols-2 gap-3 text-sm">
-          <div class="metric min-h-0">
+          <div class="mini-stat">
             <div class="label">执行模式</div>
             <div class="value text-base">纸上撮合</div>
           </div>
-          <div class="metric min-h-0">
+          <div class="mini-stat">
             <div class="label">真实下单</div>
             <div class="value text-base">未启用</div>
           </div>
-          <div class="metric min-h-0">
+          <div class="mini-stat">
             <div class="label">行情源</div>
             <div class="value text-base">Binance</div>
           </div>
-          <div class="metric min-h-0">
+          <div class="mini-stat">
             <div class="label">数据周期</div>
             <div class="value text-base">{{chartTF}}</div>
           </div>

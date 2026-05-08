@@ -47,13 +47,19 @@ class MemoryCache:
         with self._lock:
             return len(self._bars.get((symbol, timeframe), ()))
 
-    def update_latest_price(self, symbol: str, price: float, source_ts: int | None = None) -> None:
+    def update_latest_price(
+        self,
+        symbol: str,
+        price: float,
+        source_ts: int | None = None,
+        updated_at_ms: int | None = None,
+    ) -> None:
         """更新最新价。"""
         with self._lock:
             self._latest_prices[symbol] = price
             self._latest_price_meta[symbol] = {
                 "source_ts": source_ts,
-                "updated_at": self._now_ms(),
+                "updated_at": updated_at_ms if updated_at_ms is not None else self._now_ms(),
             }
 
     def latest_price(self, symbol: str) -> float | None:

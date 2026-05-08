@@ -37,6 +37,7 @@ from core.monitor.paper_metrics import paper_metrics
 # 代理配置（根据环境变量或写死）
 _PROXY = "http://127.0.0.1:57777"
 _SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+_SPOT_PRICE_URL = "https://api.binance.com/api/v3/ticker/price"
 
 
 # ─── 工兛函数 ──────────────────────────────────────────────────────────────────
@@ -65,6 +66,24 @@ def _pnl_in_window(repo: SqliteRepo, since_ms: int) -> dict:
 # ─── 实时行情理货器 ────────────────────────────────────────────────────────────
 
 
+def _apply_rest_price_rows(
+    cache: MemoryCache,
+    rows: list[dict],
+    *,
+    captured_at_ms: int,
+) -> None:
+    for row in rows:
+        symbol = str(row.get("symbol") or "")
+        price = float(row.get("price") or 0)
+        if symbol and price > 0:
+            cache.update_latest_price(
+                symbol,
+                price,
+                source_ts=captured_at_ms,
+                updated_at_ms=captured_at_ms,
+            )
+
+
 class LiveDataFeeder:
     """WS 实时行情 → MemoryCache + Paper 引擎。"""
 
@@ -87,6 +106,7 @@ class LiveDataFeeder:
         self._bar_counter = 0
         self._running = False
         self._task: asyncio.Task | None = None
+        self._price_task: asyncio.Task | None = None
 
     async def _lazy_load_exchange(self) -> None:
         """后台加载交易所 adapter（不阻塞启动）。"""
@@ -122,6 +142,7 @@ class LiveDataFeeder:
 
         # 启动定时检查引擎
         self._task = asyncio.create_task(self._engine_loop())
+        self._price_task = asyncio.create_task(self._rest_price_loop())
 
     def _on_bar(self, bar) -> None:
         """收到收盘 K 线时触发引擎检查。"""
@@ -142,11 +163,38 @@ class LiveDataFeeder:
                 pass
             await asyncio.sleep(2)
 
+    async def _rest_price_loop(self) -> None:
+        """Use REST as a latest-price freshness fallback when WS frames stall."""
+        while self._running:
+            try:
+                await self._refresh_rest_prices()
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+    async def _refresh_rest_prices(self) -> None:
+        import aiohttp
+
+        captured_at_ms = int(time.time() * 1000)
+        params = {"symbols": json.dumps(_SYMBOLS)}
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                _SPOT_PRICE_URL,
+                params=params,
+                proxy=self._proxy or None,
+            ) as resp:
+                resp.raise_for_status()
+                rows = await resp.json()
+        _apply_rest_price_rows(self._cache, rows, captured_at_ms=captured_at_ms)
+
     async def stop(self) -> None:
         """关闭连接。"""
         self._running = False
         if self._task:
             self._task.cancel()
+        if self._price_task:
+            self._price_task.cancel()
         if self._ws:
             await self._ws.close()
         if self._exchange:

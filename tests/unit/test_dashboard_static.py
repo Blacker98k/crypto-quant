@@ -49,7 +49,7 @@ def test_dashboard_static_page_avoids_emoji_action_icons() -> None:
 def test_dashboard_static_page_uses_light_professional_theme() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
-    assert "--bg:#f4f7fb" in html
+    assert "--bg:#eef3f8" in html
     assert "--panel:#ffffff" in html
     assert "--text:#0f172a" in html
     assert "--bg:#081018" not in html
@@ -92,3 +92,23 @@ def test_dashboard_static_page_refreshes_prices_quickly() -> None:
     assert "pricePollTimer" in html
     assert "setInterval(loadPrices, 1000)" in html
     assert "await asyncio.sleep(1)" in Path("dashboard/server.py").read_text(encoding="utf-8")
+
+
+def test_dashboard_static_page_uses_modern_visual_system() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    for token in [
+        "command-center",
+        "brand-lockup",
+        "metric-card",
+        "market-workbench",
+        "chart-card",
+        "side-stack",
+        "mini-stat",
+    ]:
+        assert token in html
+
+    assert "box-shadow:0 18px 48px rgba(15,23,42,.10)" in html
+    assert "border-radius:10px" in html
+    assert "background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%)" in html
+    assert "width:max-content" in html
