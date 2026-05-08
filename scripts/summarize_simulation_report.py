@@ -41,6 +41,12 @@ def _parse_args() -> argparse.Namespace:
         help="Exit non-zero when any cycle has fewer result.bars than this threshold.",
     )
     parser.add_argument(
+        "--max-open-positions-per-cycle",
+        type=int,
+        default=None,
+        help="Exit non-zero when any cycle has more result.open_positions than this threshold.",
+    )
+    parser.add_argument(
         "--require-price-source",
         action="append",
         default=[],
@@ -108,18 +114,35 @@ def main() -> None:
         )
         failed = True
 
-    if args.min_bars_per_cycle is not None:
+    if args.min_bars_per_cycle is not None or args.max_open_positions_per_cycle is not None:
         for row in _read_report_rows(args.report):
             result = row.get("result")
-            bars = result.get("bars") if isinstance(result, dict) else None
-            if not isinstance(bars, int | float) or bars < args.min_bars_per_cycle:
-                cycle = row.get("cycle", "?")
-                actual = bars if bars is not None else "missing"
-                print(
-                    f"cycle {cycle} bars {actual} below required {args.min_bars_per_cycle}",
-                    file=sys.stderr,
+            cycle = row.get("cycle", "?")
+            if args.min_bars_per_cycle is not None:
+                bars = result.get("bars") if isinstance(result, dict) else None
+                if not isinstance(bars, int | float) or bars < args.min_bars_per_cycle:
+                    actual = bars if bars is not None else "missing"
+                    print(
+                        f"cycle {cycle} bars {actual} below required {args.min_bars_per_cycle}",
+                        file=sys.stderr,
+                    )
+                    failed = True
+            if args.max_open_positions_per_cycle is not None:
+                open_positions = (
+                    result.get("open_positions") if isinstance(result, dict) else None
                 )
-                failed = True
+                if (
+                    not isinstance(open_positions, int | float)
+                    or open_positions > args.max_open_positions_per_cycle
+                ):
+                    actual = open_positions if open_positions is not None else "missing"
+                    print(
+                        "cycle "
+                        f"{cycle} open_positions {actual} above allowed "
+                        f"{args.max_open_positions_per_cycle}",
+                        file=sys.stderr,
+                    )
+                    failed = True
 
     price_sources = {str(source) for source in summary.get("price_sources", [])}
     symbols = {str(symbol) for symbol in summary.get("symbols", [])}

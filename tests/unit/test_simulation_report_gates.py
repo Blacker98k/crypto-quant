@@ -252,3 +252,46 @@ def test_summarize_simulation_report_cli_enforces_min_bars_per_cycle(
 
     assert result.returncode == 1
     assert "cycle 2 bars 12 below required 24" in result.stderr
+
+
+def test_summarize_simulation_report_cli_enforces_max_open_positions_per_cycle(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "historical.jsonl"
+    _write_report(
+        report_path,
+        [
+            {
+                "cycle": 1,
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {"bars": 24, "open_positions": 0},
+            },
+            {
+                "cycle": 2,
+                "symbol": "ETHUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {"bars": 24, "open_positions": 1},
+            },
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/summarize_simulation_report.py",
+            str(report_path),
+            "--max-open-positions-per-cycle",
+            "0",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 1
+    assert "cycle 2 open_positions 1 above allowed 0" in result.stderr
