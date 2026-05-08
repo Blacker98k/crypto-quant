@@ -3,417 +3,369 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>crypto-quant 实时交易看板</title>
+<title>crypto-quant 实时模拟交易看板</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   :root {
-    --bg:#eef3f8;
-    --panel:#ffffff;
-    --panel-2:#f8fafc;
-    --line:#d9e2ec;
-    --muted:#64748b;
-    --text:#0f172a;
-    --accent:#16a34a;
-    --warn:#d97706;
-    --danger:#dc2626;
-    --blue:#2563eb;
+    --bg:#181a20;
+    --panel:#1e2329;
+    --panel-2:#252a32;
+    --panel-3:#0b0e11;
+    --line:#2b3139;
+    --muted:#848e9c;
+    --text:#eaecef;
+    --accent:#f0b90b;
+    --accent-soft:rgba(240,185,11,.12);
+    --green:#0ecb81;
+    --red:#f6465d;
+    --blue:#3b82f6;
   }
   * { box-sizing:border-box }
   body {
     margin:0;
     min-width:320px;
-    background:
-      linear-gradient(180deg,#e7eef7 0%,#f5f8fb 330px,#edf3f8 100%),
-      radial-gradient(circle at 20% 0%,rgba(37,99,235,.10),transparent 28%);
+    min-height:100vh;
+    background:var(--bg);
     color:var(--text);
     font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
     font-variant-numeric:tabular-nums;
   }
-  .terminal-shell { width:100%; min-height:100vh; padding:16px; }
+  .terminal-shell { width:100%; min-height:100vh; padding:10px; background:var(--bg); }
   .panel {
-    background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%);
+    background:var(--panel);
     border:1px solid var(--line);
-    border-radius:10px;
-    box-shadow:0 18px 48px rgba(15,23,42,.10);
-  }
-  .command-center {
-    position:relative;
+    border-radius:6px;
     overflow:hidden;
-    background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%);
-    border:1px solid #d6e2ee;
-    border-radius:10px;
-    box-shadow:0 18px 48px rgba(15,23,42,.10);
-  }
-  .command-center::before {
-    content:"";
-    position:absolute;
-    inset:0 auto 0 0;
-    width:5px;
-    background:linear-gradient(180deg,#2563eb,#16a34a);
-  }
-  .brand-lockup {
-    display:flex;
-    align-items:center;
-    gap:12px;
-    min-width:260px;
-  }
-  .brand-mark {
-    width:42px;
-    height:42px;
-    display:grid;
-    place-items:center;
-    border-radius:10px;
-    background:#0f172a;
-    color:#ffffff;
-    font-size:13px;
-    font-weight:800;
-    letter-spacing:0;
-    box-shadow:0 12px 28px rgba(15,23,42,.18);
   }
   .panel-head {
-    min-height:42px;
-    padding:11px 14px;
-    border-bottom:1px solid var(--line);
+    min-height:38px;
+    padding:9px 12px;
     display:flex;
     align-items:center;
     justify-content:space-between;
     gap:10px;
+    border-bottom:1px solid var(--line);
+    background:#1a1d23;
   }
-  .panel-body { padding:14px; }
-  .metric {
-    min-height:74px;
-    padding:12px;
-    background:var(--panel-2);
-    border:1px solid #dbe4ee;
-    border-radius:10px;
+  .panel-body { padding:12px; }
+  .command-center {
+    min-height:58px;
+    padding:10px 12px;
+    display:grid;
+    grid-template-columns:minmax(260px,1fr) auto;
+    align-items:center;
+    gap:12px;
+    background:#0b0e11;
+    border:1px solid var(--line);
+    border-radius:6px;
   }
-  .metric-grid { gap:12px; }
-  .metric-card {
-    position:relative;
-    overflow:hidden;
-    background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
-    border:1px solid #d8e3ee;
-    box-shadow:0 10px 26px rgba(15,23,42,.06);
-  }
-  .metric-card::after {
-    content:"";
-    position:absolute;
-    left:0;
-    right:0;
-    top:0;
-    height:3px;
-    background:linear-gradient(90deg,#2563eb,#14b8a6);
-    opacity:.75;
-  }
-  .metric-card:nth-child(3n)::after { background:linear-gradient(90deg,#16a34a,#22c55e); }
-  .metric-card:nth-child(4n)::after { background:linear-gradient(90deg,#d97706,#f59e0b); }
-  .label {
-    color:var(--muted);
-    font-size:11px;
-    line-height:1.2;
-    text-transform:none;
+  .brand-lockup { display:flex; align-items:center; gap:10px; min-width:0; }
+  .brand-mark {
+    width:34px;
+    height:34px;
+    display:grid;
+    place-items:center;
+    border-radius:4px;
+    background:var(--accent);
+    color:#111318;
+    font-weight:900;
     letter-spacing:0;
   }
-  .value { margin-top:6px; color:var(--text); font-size:20px; line-height:1.1; font-weight:700; }
+  .ticker-strip {
+    display:grid;
+    grid-auto-flow:column;
+    grid-auto-columns:minmax(168px,1fr);
+    gap:8px;
+    overflow:auto;
+    padding-bottom:1px;
+  }
+  .ticker-tile {
+    min-height:58px;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--panel);
+    cursor:pointer;
+    transition:border-color .16s ease,background-color .16s ease;
+  }
+  .ticker-tile:hover,
+  .ticker-tile.active { border-color:var(--accent); background:#23281f; }
+  .exchange-grid {
+    display:grid;
+    grid-template-columns:310px minmax(0,1fr) 360px;
+    gap:10px;
+    align-items:start;
+  }
+  .market-list { max-height:calc(100vh - 172px); overflow:auto; }
+  .market-row {
+    display:grid;
+    grid-template-columns:minmax(80px,1fr) minmax(82px,auto) 64px;
+    gap:8px;
+    align-items:center;
+    min-height:42px;
+    padding:8px 10px;
+    border-bottom:1px solid rgba(43,49,57,.72);
+    cursor:pointer;
+  }
+  .market-row:hover,
+  .market-row.active { background:var(--accent-soft); }
+  .chart-card .panel-body { padding:0; }
+  .chart-toolbar {
+    min-height:70px;
+    padding:12px;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:10px;
+    align-items:center;
+    border-bottom:1px solid var(--line);
+  }
+  .chart-shell {
+    position:relative;
+    height:590px;
+    min-height:420px;
+    background:
+      repeating-linear-gradient(90deg,transparent 0,transparent 95px,rgba(132,142,156,.08) 96px),
+      repeating-linear-gradient(0deg,transparent 0,transparent 63px,rgba(132,142,156,.07) 64px),
+      #15181e;
+  }
+  .market-chart { position:absolute; inset:0; }
+  .order-flow { max-height:calc(100vh - 172px); overflow:auto; }
+  .metric-grid {
+    display:grid;
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    gap:8px;
+  }
+  .metric-card {
+    min-height:74px;
+    padding:10px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--panel);
+  }
+  .metric-card::before {
+    content:"";
+    display:block;
+    height:2px;
+    margin:-10px -10px 8px;
+    background:linear-gradient(90deg,var(--accent),transparent);
+  }
+  .label { color:var(--muted); font-size:11px; line-height:1.2; letter-spacing:0; }
+  .value { margin-top:5px; color:var(--text); font-size:18px; line-height:1.1; font-weight:800; }
+  .price-xl { font-size:32px; line-height:1; font-weight:850; letter-spacing:0; }
   .subtle { color:var(--muted); font-size:12px; }
-  .pos { color:#047857; font-weight:700 }
-  .neg { color:#dc2626; font-weight:700 }
+  .pos { color:var(--green); font-weight:750 }
+  .neg { color:var(--red); font-weight:750 }
+  .btn {
+    min-height:34px;
+    padding:7px 11px;
+    border-radius:4px;
+    border:1px solid var(--line);
+    background:var(--panel-2);
+    color:var(--text);
+    cursor:pointer;
+    font-size:13px;
+    font-weight:750;
+    transition:background-color .16s ease,border-color .16s ease,color .16s ease;
+  }
+  .btn:hover { border-color:var(--accent); }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#111318; }
+  .btn-danger { background:var(--red); border-color:var(--red); color:#fff; }
+  .badge {
+    display:inline-flex;
+    align-items:center;
+    min-height:22px;
+    padding:2px 7px;
+    border-radius:4px;
+    border:1px solid var(--line);
+    background:var(--panel-2);
+    color:var(--text);
+    font-size:11px;
+    font-weight:750;
+    white-space:nowrap;
+  }
+  .badge-paper { color:#111318; background:var(--accent); border-color:var(--accent); }
+  .badge-buy { color:var(--green); background:rgba(14,203,129,.10); border-color:rgba(14,203,129,.35); }
+  .badge-sell { color:var(--red); background:rgba(246,70,93,.10); border-color:rgba(246,70,93,.35); }
+  .badge-ok { color:var(--green); }
+  .badge-warn { color:var(--accent); }
+  .badge-err { color:var(--red); }
   .status-pill {
     display:inline-flex;
     align-items:center;
     gap:7px;
-    min-height:28px;
-    padding:4px 10px;
-    border-radius:999px;
-    font-size:12px;
+    min-height:26px;
+    padding:4px 9px;
     border:1px solid var(--line);
-    background:#ffffff;
-    white-space:nowrap;
-  }
-  .status-dot {
-    width:8px;
-    height:8px;
     border-radius:999px;
-    background:var(--danger);
-    box-shadow:0 0 0 3px rgba(239,68,68,.14);
+    background:var(--panel);
+    font-size:12px;
   }
-  .status-dot.live {
-    background:var(--accent);
-    box-shadow:0 0 0 3px rgba(34,197,94,.16);
-  }
-  .badge {
-    display:inline-flex;
-    min-height:22px;
-    align-items:center;
-    padding:2px 8px;
-    border-radius:999px;
-    font-size:11px;
-    font-weight:700;
-    border:1px solid transparent;
-    white-space:nowrap;
-  }
-  .toolbar-group {
+  .status-dot { width:7px; height:7px; border-radius:999px; background:var(--red); box-shadow:0 0 0 3px rgba(246,70,93,.16); }
+  .status-dot.live { background:var(--green); box-shadow:0 0 0 3px rgba(14,203,129,.16); }
+  .toolbar-group { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .bottom-tabs {
     display:flex;
     flex-wrap:wrap;
-    align-items:center;
-    gap:8px;
-    width:max-content;
-    max-width:100%;
-    padding:6px;
-    border:1px solid #dbe4ee;
-    border-radius:10px;
-    background:#f8fafc;
+    gap:0;
+    border-bottom:1px solid var(--line);
+    background:#1a1d23;
   }
-  .badge-paper{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
-  .badge-buy{background:#dcfce7;color:#047857;border-color:#bbf7d0}
-  .badge-sell{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
-  .badge-ok{background:#dcfce7;color:#047857;border-color:#bbf7d0}
-  .badge-warn{background:#fef3c7;color:#92400e;border-color:#fde68a}
-  .badge-err{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
-  .badge-idle{background:#e2e8f0;color:#475569;border-color:#cbd5e1}
-  .badge-market{background:#e0e7ff;color:#4338ca;border-color:#c7d2fe}
-  .badge-limit{background:#e0f2fe;color:#0369a1;border-color:#bae6fd}
-  .btn {
-    min-height:36px;
-    padding:7px 13px;
-    border-radius:8px;
-    border:1px solid var(--line);
+  .tab-btn {
+    min-height:38px;
+    padding:8px 13px;
+    color:var(--muted);
+    border:0;
+    border-right:1px solid var(--line);
+    background:transparent;
     cursor:pointer;
-    font-size:13px;
-    font-weight:700;
-    transition:background-color .18s ease,border-color .18s ease,color .18s ease;
+    font-weight:750;
   }
-  .btn-primary { background:#2563eb; border-color:#1d4ed8; color:#ffffff; }
-  .btn-primary:hover { background:#1d4ed8; }
-  .btn-secondary { background:#ffffff; color:#334155; }
-  .btn-secondary:hover { background:#f1f5f9; border-color:#b6c3d1; }
-  .btn-danger { background:#dc2626; border-color:#b91c1c; color:#ffffff; }
-  .btn-danger:hover { background:#b91c1c; }
+  .tab-btn.active { color:var(--accent); background:var(--accent-soft); }
+  .table-wrap { overflow:auto; max-height:360px; }
   table { width:100%; border-collapse:collapse; font-size:12px; }
   th {
     position:sticky;
     top:0;
     z-index:1;
-    background:#f8fafc;
-    color:#475569;
-    text-align:left;
     padding:8px 10px;
-    font-size:11px;
-    font-weight:700;
+    color:var(--muted);
+    background:#1a1d23;
     border-bottom:1px solid var(--line);
+    text-align:left;
     white-space:nowrap;
   }
-  td {
-    padding:7px 10px;
-    border-bottom:1px solid #e5edf5;
-    white-space:nowrap;
-    color:#1e293b;
-  }
-  tbody tr:hover td { background:rgba(37,99,235,.05); }
-  .table-wrap { overflow:auto; max-height:430px; border-radius:0 0 8px 8px; }
-  .market-workbench {
+  td { padding:7px 10px; border-bottom:1px solid rgba(43,49,57,.72); white-space:nowrap; }
+  tbody tr:hover td { background:rgba(240,185,11,.06); }
+  select.btn { appearance:auto; }
+  .strategy-matrix {
     display:grid;
-    grid-template-columns:minmax(0,2fr) 420px;
-    gap:12px;
-  }
-  .chart-card { overflow:hidden; }
-  .chart-card .panel-body { padding:0 14px 14px; }
-  .chart-shell {
-    position:relative;
-    height:560px;
-    min-height:360px;
-    border-radius:10px;
-    border:1px solid #dbe4ee;
-    background:
-      linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.96)),
-      repeating-linear-gradient(90deg,transparent 0,transparent 79px,rgba(100,116,139,.06) 80px),
-      repeating-linear-gradient(0deg,transparent 0,transparent 55px,rgba(100,116,139,.05) 56px);
-    overflow:hidden;
-  }
-  .market-chart { position:absolute; inset:0; }
-  .chart-toolbar {
-    display:grid;
-    grid-template-columns:minmax(0,1fr) auto;
-    gap:12px;
-    align-items:center;
-    padding:14px;
-    border-bottom:1px solid #edf2f7;
-  }
-  .chart-title-row {
-    display:flex;
-    flex-wrap:wrap;
-    align-items:center;
+    grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
     gap:8px;
   }
-  .chart-price { font-size:32px; line-height:1; font-weight:850; color:#0f172a; letter-spacing:0; }
-  .chart-chip {
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    min-height:26px;
-    border-radius:999px;
-    border:1px solid #dbe4ee;
-    background:#ffffff;
-    color:#475569;
-    padding:3px 9px;
-    font-size:12px;
-    font-weight:700;
-  }
-  .side-stack { display:grid; gap:12px; align-content:start; }
-  .market-tile {
-    border-radius:10px;
-    border:1px solid #dbe4ee;
-    background:#ffffff;
-    padding:12px;
-    box-shadow:0 8px 20px rgba(15,23,42,.05);
-  }
-  .mini-stat {
-    min-height:78px;
-    border-radius:10px;
-    border:1px solid #dbe4ee;
-    background:linear-gradient(180deg,#ffffff,#f8fbff);
-    padding:12px;
-  }
-  .fresh-dot { width:7px; height:7px; border-radius:999px; background:#16a34a; box-shadow:0 0 0 3px rgba(22,163,74,.12); }
-  .fresh-dot.slow { background:#d97706; box-shadow:0 0 0 3px rgba(217,119,6,.14); }
-  .balance-box { height:210px; min-height:180px; }
-  .operations-grid {
-    display:grid;
-    grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,.9fr);
-    gap:12px;
+  .matrix-cell {
+    min-height:92px;
+    padding:10px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--panel-2);
   }
   @media (max-width:1280px) {
-    .market-workbench { grid-template-columns:1fr; }
-    .operations-grid { grid-template-columns:1fr; }
-    .chart-shell { height:460px; }
+    .exchange-grid { grid-template-columns:260px minmax(0,1fr); }
+    .order-flow { grid-column:1 / -1; max-height:none; }
+    .metric-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   }
-  @media (max-width:640px) {
-    .terminal-shell { padding:10px; }
-    .panel-body { padding:10px; }
-    .value { font-size:18px; }
-    .brand-lockup { min-width:0; }
-    .brand-mark { width:36px; height:36px; }
-    .chart-toolbar { grid-template-columns:1fr; }
+  @media (max-width:760px) {
+    .terminal-shell { padding:8px; }
+    .command-center,
+    .chart-toolbar,
+    .exchange-grid { grid-template-columns:1fr; }
+    .market-list,
+    .order-flow { max-height:none; }
+    .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .chart-shell { height:430px; }
   }
 </style>
 </head>
 <body>
-<div id="app" class="terminal-shell space-y-3">
+<div id="app" class="terminal-shell space-y-2">
   <header class="command-center">
-    <div class="panel-body">
-      <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-4">
-          <div class="brand-lockup">
-            <div class="brand-mark">CQ</div>
-            <div>
-              <div class="text-[11px] text-slate-500">crypto-quant</div>
-              <h1 class="text-xl lg:text-2xl font-bold leading-tight">实时量化交易工作台</h1>
-            </div>
-          </div>
-          <span class="badge badge-paper">纸上撮合</span>
-          <span class="status-pill">
-            <span class="status-dot" :class="{live:isRunning}"></span>
-            <span>{{isRunning ? '运行中' : '已停止'}}</span>
-          </span>
-          <span class="subtle">行情连接 {{status.ws_connected ? '已连接' : '未连接'}} / 已接收 {{status.bars_received}} 根K线</span>
-          <span class="subtle">数据源 Binance 公共行情 / 禁止真实下单</span>
-        </div>
-        <div class="toolbar-group">
-          <button class="btn btn-primary" @click="startSim" v-if="!isRunning">启动模拟</button>
-          <button class="btn btn-danger" @click="stopSim" v-else>停止模拟</button>
-          <button class="btn btn-secondary" @click="randomOrder">随机下单</button>
-          <span v-if="toast" class="subtle">{{toast}}</span>
-        </div>
+    <div class="brand-lockup">
+      <div class="brand-mark">CQ</div>
+      <div class="min-w-0">
+        <div class="text-[11px] text-[#848e9c]">crypto-quant / Binance-style paper terminal</div>
+        <h1 class="text-lg font-black leading-tight">多币种量化模拟交易看板</h1>
       </div>
+      <span class="badge badge-paper">纸面撮合</span>
+      <span class="status-pill">
+        <span class="status-dot" :class="{live:isRunning}"></span>
+        <span>{{isRunning ? '运行中' : '已停止'}}</span>
+      </span>
+    </div>
+    <div class="toolbar-group justify-end">
+      <button class="btn btn-primary" @click="startSim" v-if="!isRunning">启动模拟</button>
+      <button class="btn btn-danger" @click="stopSim" v-else>停止模拟</button>
+      <button class="btn" @click="randomOrder">样本烟测</button>
+      <span class="subtle">{{toast || '真实行情只读，禁止真实下单'}}</span>
     </div>
   </header>
 
-  <section class="metric-grid grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-12">
-    <div class="metric metric-card">
-      <div class="label">组合价值</div>
-      <div class="value">${{fmt(status.portfolio_value)}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">USDT 余额</div>
-      <div class="value">${{fmt(status.usdt_balance)}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">本日盈亏</div>
-      <div class="value" :class="signClass(status.day_pnl.pnl)">{{status.day_pnl.pnl>=0?'+':''}}{{fmt(status.day_pnl.pnl)}}</div>
-      <div class="subtle">{{status.day_pnl.n}} 笔成交</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">本周盈亏</div>
-      <div class="value" :class="signClass(status.week_pnl.pnl)">{{status.week_pnl.pnl>=0?'+':''}}{{fmt(status.week_pnl.pnl)}}</div>
-      <div class="subtle">{{status.week_pnl.n}} 笔成交</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">持仓 / 挂单</div>
-      <div class="value">{{status.open_positions_n}} / {{status.open_orders_n}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">持仓名义额</div>
-      <div class="value">${{fmt(paperMetrics.positions.open_notional)}}</div>
-      <div class="subtle">当前持仓 {{paperMetrics.positions.open || 0}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">行情覆盖</div>
-      <div class="value">{{Object.keys(status.latest_prices || {}).length || Object.keys(prices).length}}</div>
-      <div class="subtle">BTC / ETH 公共行情</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">订单总数</div>
-      <div class="value">{{paperMetrics.orders.total || 0}}</div>
-      <div class="subtle">挂单 {{status.open_orders_n || 0}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">成交笔数</div>
-      <div class="value">{{paperMetrics.fills.total || 0}}</div>
-      <div class="subtle">今日 {{status.day_pnl.n || 0}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">成交名义额</div>
-      <div class="value">${{fmt(paperMetrics.fills.filled_notional)}}</div>
-      <div class="subtle">费用 ${{fmt(paperMetrics.fills.fees)}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">现金盈亏</div>
-      <div class="value" :class="signClass(paperMetrics.fills.cash_pnl)">{{paperMetrics.fills.cash_pnl>=0?'+':''}}${{fmt(paperMetrics.fills.cash_pnl)}}</div>
-      <div class="subtle">已成交现金流</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">风险事件</div>
-      <div class="value">{{status.risk_events_n || 0}}</div>
-      <div class="subtle">严重 {{status.critical_risk_events_n || 0}} / 今日 {{paperMetrics.risk_events.total}}</div>
-    </div>
+  <section class="ticker-strip">
+    <button
+      v-for="row in universe.symbols"
+      :key="row.symbol"
+      class="ticker-tile text-left"
+      :class="{active:chartSymbol===row.symbol}"
+      @click="selectSymbol(row.symbol)"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <span class="font-black">{{row.symbol}}</span>
+        <span :class="priceChangeClass(row.symbol)">{{priceChangeText(row.symbol)}}</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <span class="text-base font-black">${{fmt(row.price ?? prices[row.symbol]?.price)}}</span>
+        <span class="subtle">{{freshnessText(prices[row.symbol] || row)}}</span>
+      </div>
+    </button>
   </section>
 
-  <main class="market-workbench">
+  <section class="metric-grid">
+    <div class="metric-card"><div class="label">组合价值</div><div class="value">${{fmt(status.portfolio_value)}}</div></div>
+    <div class="metric-card"><div class="label">USDT 余额</div><div class="value">${{fmt(status.usdt_balance)}}</div></div>
+    <div class="metric-card"><div class="label">本日盈亏</div><div class="value" :class="signClass(status.day_pnl.pnl)">{{signedMoney(status.day_pnl.pnl)}}</div><div class="subtle">{{status.day_pnl.n}} 笔成交</div></div>
+    <div class="metric-card"><div class="label">订单总数</div><div class="value">{{paperMetrics.orders.total || 0}}</div><div class="subtle">挂单 {{status.open_orders_n}}</div></div>
+    <div class="metric-card"><div class="label">成交笔数</div><div class="value">{{paperMetrics.fills.total || 0}}</div><div class="subtle">成交额 ${{fmt(paperMetrics.fills.filled_notional)}}</div></div>
+    <div class="metric-card"><div class="label">现金盈亏</div><div class="value" :class="signClass(paperMetrics.fills.cash_pnl)">{{signedMoney(paperMetrics.fills.cash_pnl)}}</div><div class="subtle">手续费 ${{fmt(paperMetrics.fills.fees)}}</div></div>
+    <div class="metric-card"><div class="label">持仓名义额</div><div class="value">${{fmt(paperMetrics.positions.open_notional)}}</div><div class="subtle">持仓 {{status.open_positions_n}}</div></div>
+    <div class="metric-card"><div class="label">行情覆盖</div><div class="value">{{universe.count || universe.symbols.length}}</div><div class="subtle">策略 {{strategyMatrix.strategies.length}}</div></div>
+    <div class="metric-card"><div class="label">风控事件</div><div class="value">{{paperMetrics.risk_events.total || 0}}</div><div class="subtle">严重 {{status.critical_risk_events_n || 0}}</div></div>
+  </section>
+
+  <main class="exchange-grid">
+    <aside class="panel market-list">
+      <div class="panel-head">
+        <div>
+          <div class="font-black">Top30 主流币池</div>
+          <div class="subtle">按 Binance 公共成交额筛选</div>
+        </div>
+        <span class="badge">{{Object.keys(prices).length}} 实时</span>
+      </div>
+      <div>
+        <button
+          v-for="row in universe.symbols"
+          :key="'market-'+row.symbol"
+          class="market-row w-full text-left"
+          :class="{active:chartSymbol===row.symbol}"
+          @click="selectSymbol(row.symbol)"
+        >
+          <span class="font-bold">{{row.symbol}}</span>
+          <span class="text-right">${{fmt(row.price ?? prices[row.symbol]?.price)}}</span>
+          <span class="text-right" :class="priceChangeClass(row.symbol)">{{priceChangeText(row.symbol)}}</span>
+        </button>
+      </div>
+    </aside>
+
     <section class="panel chart-card min-w-0">
       <div class="chart-toolbar">
         <div class="min-w-0">
-          <div class="chart-title-row">
-            <div class="font-bold">专业K线</div>
-            <span class="chart-chip">{{chartSymbol}} / {{chartTF}}</span>
-            <span class="chart-chip"><span class="fresh-dot" :class="{slow: priceAgeMs(activePrice) > 3000}"></span>更新延迟 {{freshnessText(activePrice)}}</span>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xl font-black">{{chartSymbol}}</span>
+            <span class="badge">{{chartTF}}</span>
+            <span class="badge" :class="priceAgeMs(activePrice) > 3000 ? 'badge-warn' : 'badge-ok'">延迟 {{freshnessText(activePrice)}}</span>
+            <span class="badge">公共行情</span>
           </div>
-          <div class="mt-3 flex flex-wrap items-end gap-3">
-            <div class="chart-price">${{fmt(activePrice.price)}}</div>
+          <div class="mt-2 flex flex-wrap items-end gap-3">
+            <div class="price-xl">${{fmt(activePrice.price)}}</div>
             <div :class="activePrice.change_24h>=0?'pos':'neg'">{{activePrice.change_24h>=0?'+':''}}{{activePrice.change_24h ?? 0}}%</div>
-            <div class="subtle">当前价 / 24小时涨跌 / 成交量 / 双均线</div>
+            <div class="subtle">当前价 / 高 {{fmt(activePrice.high_24h)}} / 低 {{fmt(activePrice.low_24h)}} / K 线 {{priceHistory.length}}</div>
           </div>
         </div>
         <div class="toolbar-group justify-end">
-          <label class="sr-only" for="chart-symbol">交易对</label>
-          <select id="chart-symbol" v-model="chartSymbol" @change="loadPriceHistory" class="btn btn-secondary">
-            <option>BTCUSDT</option>
-            <option>ETHUSDT</option>
+          <select v-model="chartSymbol" @change="loadPriceHistory" class="btn" aria-label="交易对">
+            <option v-for="row in universe.symbols" :key="'opt-'+row.symbol" :value="row.symbol">{{row.symbol}}</option>
           </select>
-          <label class="sr-only" for="chart-tf">周期</label>
-          <select id="chart-tf" v-model="chartTF" @change="loadPriceHistory" class="btn btn-secondary">
+          <select v-model="chartTF" @change="loadPriceHistory" class="btn" aria-label="K线周期">
             <option value="1m">1m</option>
             <option value="5m">5m</option>
             <option value="1h">1h</option>
@@ -427,227 +379,121 @@
       </div>
     </section>
 
-    <aside class="side-stack min-w-0">
-      <section class="panel">
-        <div class="panel-head">
-          <div class="font-bold">实时行情</div>
-          <div class="subtle">{{Object.keys(prices).length}} 个交易对</div>
+    <aside class="panel order-flow">
+      <div class="panel-head">
+        <div>
+          <div class="font-black">模拟成交流</div>
+          <div class="subtle">最近纸面成交与策略来源</div>
         </div>
-        <div class="panel-body space-y-2">
-          <div v-for="(info,sym) in prices" :key="sym" class="market-tile">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-sm font-bold">{{sym}}</div>
-                <div class="value">${{fmt(info.price)}}</div>
-              </div>
-              <div class="text-right">
-                <div :class="info.change_24h>=0?'pos':'neg'">{{info.change_24h>=0?'+':''}}{{info.change_24h}}%</div>
-                <div class="subtle">24小时</div>
-              </div>
-            </div>
-            <div class="mt-3 grid grid-cols-2 gap-2 subtle">
-              <div>高 {{fmt(info.high_24h)}}</div>
-              <div class="text-right">低 {{fmt(info.low_24h)}}</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <div class="font-bold">运行摘要</div>
-          <span class="badge badge-paper">只读行情</span>
-        </div>
-        <div class="panel-body grid grid-cols-2 gap-3 text-sm">
-          <div class="mini-stat">
-            <div class="label">执行模式</div>
-            <div class="value text-base">纸上撮合</div>
-          </div>
-          <div class="mini-stat">
-            <div class="label">真实下单</div>
-            <div class="value text-base">未启用</div>
-          </div>
-          <div class="mini-stat">
-            <div class="label">行情源</div>
-            <div class="value text-base">Binance</div>
-          </div>
-          <div class="mini-stat">
-            <div class="label">数据周期</div>
-            <div class="value text-base">{{chartTF}}</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <div class="font-bold">数据健康</div>
-          <span :class="healthBadge(dataHealth.status)">{{dataHealth.status}}</span>
-        </div>
-        <div class="panel-body grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <div class="label">运行日志</div>
-            <div class="value">{{dataHealth.total}}</div>
-          </div>
-          <div>
-            <div class="label">成功 / 失败</div>
-            <div class="value">{{dataHealth.by_status.ok || 0}} / {{dataHealth.by_status.fail || 0}}</div>
-          </div>
-          <div>
-            <div class="label">平均延迟</div>
-            <div class="value">{{dataHealth.latency_ms.avg ?? '-'}} ms</div>
-          </div>
-          <div>
-            <div class="label">最大延迟</div>
-            <div class="value">{{dataHealth.latency_ms.max ?? '-'}} ms</div>
-          </div>
-          <div class="col-span-2 subtle">
-            {{dataHealth.latest_endpoint || '暂无公共行情探针'}}
-            <br>
-            {{dataHealth.recent_failures[0]?.note || '最近异常：无'}}
-          </div>
-        </div>
-      </section>
+        <span class="badge badge-paper">{{recentTrades.length}} 笔</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>时间</th><th>币种</th><th>方向</th><th class="text-right">价格</th><th class="text-right">名义额</th></tr></thead>
+          <tbody>
+            <tr v-for="trade in recentTrades" :key="'rt-'+trade.id">
+              <td>{{tsToTime(trade.ts)}}</td>
+              <td><div class="font-bold">{{trade.symbol}}</div><div class="subtle">{{trade.strategy}}</div></td>
+              <td><span :class="trade.side==='buy'?'badge badge-buy':'badge badge-sell'">{{trade.side==='buy'?'买入':'卖出'}}</span></td>
+              <td class="text-right">${{fmt(trade.price)}}</td>
+              <td class="text-right">${{fmt(trade.notional)}}</td>
+            </tr>
+            <tr v-if="recentTrades.length===0"><td colspan="5" class="subtle text-center py-8">暂无模拟成交，等待策略触发</td></tr>
+          </tbody>
+        </table>
+      </div>
     </aside>
   </main>
 
-  <section class="operations-grid">
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">最近订单</div>
-          <div class="subtle">按策略筛选: {{strategyFilter || '全部'}}</div>
-        </div>
-        <select v-model="orderStatusFilter" @change="loadOrders" class="btn btn-secondary">
-          <option value="">全部</option>
-          <option value="filled">已成交</option>
-          <option value="accepted">挂单中</option>
-          <option value="canceled">已撤销</option>
-          <option value="rejected">已拒绝</option>
-        </select>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>时间</th><th>订单</th><th>方向</th><th>交易对</th><th>类型</th>
-            <th class="text-right">价格</th><th class="text-right">数量</th><th>状态</th>
-          </tr></thead>
-          <tbody>
-            <tr v-for="o in filteredOrders" :key="o.id">
-              <td>{{tsToTime(o.placed_at)}}</td>
-              <td class="text-slate-400">{{(o.client_order_id || '').slice(-8)}}</td>
-              <td><span :class="o.side==='buy'?'badge badge-buy':'badge badge-sell'">{{o.side==='buy'?'买入':'卖出'}}</span></td>
-              <td>{{o.symbol}}</td>
-              <td><span :class="o.type==='market'?'badge badge-market':'badge badge-limit'">{{o.type==='market'?'市价':'限价'}}</span></td>
-              <td class="text-right">{{o.price ? '$'+fmt(o.price) : '-'}}</td>
-              <td class="text-right">{{o.quantity}}</td>
-              <td><span :class="o.status==='filled'?'badge badge-ok':o.status==='accepted'?'badge badge-warn':'badge badge-err'">{{statusLabel(o.status)}}</span></td>
-            </tr>
-            <tr v-if="filteredOrders.length===0"><td colspan="8" class="subtle text-center py-8">暂无订单</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+  <section class="panel">
+    <div class="bottom-tabs">
+      <button class="tab-btn" :class="{active:activeTab==='matrix'}" @click="activeTab='matrix'">交易矩阵</button>
+      <button class="tab-btn" :class="{active:activeTab==='orders'}" @click="activeTab='orders'">订单</button>
+      <button class="tab-btn" :class="{active:activeTab==='fills'}" @click="activeTab='fills'">成交</button>
+      <button class="tab-btn" :class="{active:activeTab==='positions'}" @click="activeTab='positions'">持仓</button>
+      <button class="tab-btn" :class="{active:activeTab==='risk'}" @click="activeTab='risk'">风控</button>
+      <button class="tab-btn" :class="{active:activeTab==='health'}" @click="activeTab='health'">数据健康</button>
+    </div>
 
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">最近成交</div>
-          <div class="subtle">成交笔数 {{paperMetrics.fills.total}}</div>
-        </div>
-        <div class="subtle" :class="signClass(paperMetrics.fills.cash_pnl)">现金盈亏 {{paperMetrics.fills.cash_pnl>=0?'+':''}}${{fmt(paperMetrics.fills.cash_pnl)}}</div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>时间</th><th>交易对</th><th>方向</th><th class="text-right">价格</th><th class="text-right">数量</th><th class="text-right">手续费</th>
-          </tr></thead>
-          <tbody>
-            <tr v-for="f in fills" :key="f.id">
-              <td>{{tsToTime(f.ts)}}</td>
-              <td>{{f.symbol}}</td>
-              <td><span :class="f.side==='buy'?'badge badge-buy':'badge badge-sell'">{{f.side==='buy'?'买入':'卖出'}}</span></td>
-              <td class="text-right">${{fmt(f.price)}}</td>
-              <td class="text-right">{{f.quantity}}</td>
-              <td class="text-right">${{fmt(f.fee)}}</td>
-            </tr>
-            <tr v-if="fills.length===0"><td colspan="6" class="subtle text-center py-8">暂无成交</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">当前持仓</div>
-          <div class="subtle">持仓 {{paperMetrics.positions.open}}</div>
-        </div>
-        <div class="subtle">名义额 ${{fmt(paperMetrics.positions.open_notional)}}</div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>交易对</th><th>方向</th><th class="text-right">数量</th><th class="text-right">入场</th><th class="text-right">现价</th><th class="text-right">盈亏</th>
-          </tr></thead>
-          <tbody>
-            <tr v-for="p in positions" :key="p.symbol+p.side+p.strategy">
-              <td>{{p.symbol}}</td>
-              <td><span :class="p.side==='buy'?'badge badge-buy':'badge badge-sell'">{{p.side==='buy'?'多':'空'}}</span></td>
-              <td class="text-right">{{p.qty}}</td>
-              <td class="text-right">${{fmt(p.entry_price)}}</td>
-              <td class="text-right">${{fmt(p.current_price)}}</td>
-              <td class="text-right" :class="signClass(p.unrealized_pnl)">{{p.unrealized_pnl>=0?'+':''}}${{fmt(p.unrealized_pnl)}}</td>
-            </tr>
-            <tr v-if="positions.length===0"><td colspan="6" class="subtle text-center py-8">暂无持仓</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </section>
-
-  <section class="grid grid-cols-1 xl:grid-cols-[420px_minmax(0,1fr)] gap-3">
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">策略概览</div>
-          <div class="subtle">{{strategies.length}} 个策略</div>
-        </div>
-      </div>
-      <div class="panel-body space-y-2">
-        <button
-          v-for="sc in strategies"
-          :key="sc.name"
-          class="w-full text-left metric cursor-pointer transition-colors hover:border-sky-500"
-          :class="{'border-sky-400': strategyFilter===sc.name}"
-          @click="strategyFilter = strategyFilter===sc.name ? '' : sc.name"
-        >
-          <div class="flex items-center justify-between gap-3">
-            <span class="font-bold">{{sc.name}}</span>
-            <span class="subtle">收益率 {{sc.roi}}%</span>
+    <div v-if="activeTab==='matrix'" class="panel-body">
+      <div class="strategy-matrix">
+        <div v-for="cell in strategyMatrix.cells" :key="cell.symbol+cell.strategy" class="matrix-cell">
+          <div class="flex items-center justify-between gap-2">
+            <div class="font-black">{{cell.symbol}}</div>
+            <span class="badge" :class="cell.ready?'badge-ok':'badge-warn'">{{cell.ready?'已预热':'预热中'}}</span>
           </div>
-          <div class="mt-3 grid grid-cols-3 gap-2 subtle">
-            <span>订单 {{sc.orders_count}}</span>
-            <span>成交 {{sc.fills_count}}</span>
-            <span :class="signClass(sc.total_pnl)">盈亏 ${{fmt(sc.total_pnl)}}</span>
+          <div class="mt-1 subtle">{{cell.strategy}}</div>
+          <div class="mt-3 grid grid-cols-3 gap-2 text-sm">
+            <div><div class="label">订单</div><div class="font-bold">{{cell.orders}}</div></div>
+            <div><div class="label">成交</div><div class="font-bold">{{cell.fills}}</div></div>
+            <div><div class="label">K线</div><div class="font-bold">{{cell.bars}}</div></div>
           </div>
-        </button>
-        <div v-if="strategies.length===0" class="subtle">暂无策略订单。</div>
+        </div>
       </div>
-    </section>
+    </div>
 
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">资金曲线</div>
-          <div class="subtle">组合价值 / 累计盈亏</div>
-        </div>
-      </div>
-      <div class="panel-body">
-        <div class="balance-box">
-          <canvas id="balanceChart"></canvas>
-        </div>
-      </div>
-    </section>
+    <div v-if="activeTab==='orders'" class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>订单</th><th>策略</th><th>方向</th><th>币种</th><th>类型</th><th class="text-right">价格</th><th class="text-right">数量</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr v-for="o in filteredOrders" :key="o.id">
+            <td>{{tsToTime(o.placed_at)}}</td><td class="subtle">{{(o.client_order_id || '').slice(-10)}}</td><td>{{o.strategy}}</td>
+            <td><span :class="o.side==='buy'?'badge badge-buy':'badge badge-sell'">{{o.side==='buy'?'买入':'卖出'}}</span></td>
+            <td>{{o.symbol}}</td><td>{{o.type}}</td><td class="text-right">{{o.price ? '$'+fmt(o.price) : '-'}}</td><td class="text-right">{{o.quantity}}</td>
+            <td><span class="badge" :class="o.status==='filled'?'badge-ok':o.status==='accepted'?'badge-warn':'badge-err'">{{statusLabel(o.status)}}</span></td>
+          </tr>
+          <tr v-if="filteredOrders.length===0"><td colspan="9" class="subtle text-center py-8">暂无订单</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="activeTab==='fills'" class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>币种</th><th>策略</th><th>方向</th><th class="text-right">价格</th><th class="text-right">数量</th><th class="text-right">手续费</th></tr></thead>
+        <tbody>
+          <tr v-for="f in fills" :key="f.id">
+            <td>{{tsToTime(f.ts)}}</td><td>{{f.symbol}}</td><td>{{f.strategy}}</td>
+            <td><span :class="f.side==='buy'?'badge badge-buy':'badge badge-sell'">{{f.side==='buy'?'买入':'卖出'}}</span></td>
+            <td class="text-right">${{fmt(f.price)}}</td><td class="text-right">{{f.quantity}}</td><td class="text-right">${{fmt(f.fee,4)}}</td>
+          </tr>
+          <tr v-if="fills.length===0"><td colspan="7" class="subtle text-center py-8">暂无成交</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="activeTab==='positions'" class="table-wrap">
+      <table>
+        <thead><tr><th>币种</th><th>策略</th><th>方向</th><th class="text-right">数量</th><th class="text-right">入场</th><th class="text-right">现价</th><th class="text-right">浮盈亏</th></tr></thead>
+        <tbody>
+          <tr v-for="p in positions" :key="p.symbol+p.side+p.strategy">
+            <td>{{p.symbol}}</td><td>{{p.strategy}}</td><td><span :class="p.side==='buy'?'badge badge-buy':'badge badge-sell'">{{p.side==='buy'?'多':'空'}}</span></td>
+            <td class="text-right">{{p.qty}}</td><td class="text-right">${{fmt(p.entry_price)}}</td><td class="text-right">${{fmt(p.current_price)}}</td>
+            <td class="text-right" :class="signClass(p.unrealized_pnl)">{{signedMoney(p.unrealized_pnl)}}</td>
+          </tr>
+          <tr v-if="positions.length===0"><td colspan="7" class="subtle text-center py-8">暂无持仓</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="activeTab==='risk'" class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>级别</th><th>类型</th><th>来源</th><th>原因</th></tr></thead>
+        <tbody>
+          <tr v-for="r in riskEvents" :key="r.id">
+            <td>{{tsToTime(r.captured_at)}}</td><td><span class="badge" :class="r.severity==='critical'?'badge-err':r.severity==='warn'?'badge-warn':'badge-ok'">{{r.severity}}</span></td>
+            <td>{{r.type}}</td><td>{{r.source}}</td><td>{{r.payload?.reason || r.payload?.raw || '-'}}</td>
+          </tr>
+          <tr v-if="riskEvents.length===0"><td colspan="5" class="subtle text-center py-8">暂无风控事件</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="activeTab==='health'" class="panel-body grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="metric-card"><div class="label">数据健康</div><div class="value">{{dataHealth.status}}</div></div>
+      <div class="metric-card"><div class="label">运行日志</div><div class="value">{{dataHealth.total}}</div></div>
+      <div class="metric-card"><div class="label">平均延迟</div><div class="value">{{dataHealth.latency_ms.avg ?? '-'}} ms</div></div>
+      <div class="metric-card"><div class="label">最大延迟</div><div class="value">{{dataHealth.latency_ms.max ?? '-'}} ms</div></div>
+    </div>
   </section>
 </div>
 
@@ -671,26 +517,29 @@ createApp({
       status:'idle', total:0, by_status:{}, latest_captured_at:null, latest_endpoint:null,
       latency_ms:{min:null,max:null,avg:null}, endpoints:[], recent_failures:[], recent:[],
     })
+    const universe = reactive({name:'top30', count:0, symbols:[]})
+    const strategyMatrix = reactive({symbols:[], strategies:[], cells:[]})
     const prices = reactive({})
     const orders = ref([])
     const fills = ref([])
     const positions = ref([])
     const strategies = ref([])
+    const recentTrades = ref([])
+    const riskEvents = ref([])
     const balanceHistory = ref([])
     const priceHistory = ref([])
     const chartSymbol = ref('BTCUSDT')
     const chartTF = ref('1m')
     const strategyFilter = ref('')
     const orderStatusFilter = ref('')
+    const activeTab = ref('matrix')
     const toast = ref('')
-
     let priceChart = null
     let candleSeries = null
     let volumeSeries = null
     let ma20Series = null
     let ma50Series = null
     let chartResizeObserver = null
-    let balanceChart = null
     let ws = null
     let pollTimer = null
     let pricePollTimer = null
@@ -708,71 +557,86 @@ createApp({
     const fmt = (value, digits=2) => (
       value != null ? Number(value).toLocaleString('en-US', {minimumFractionDigits:digits, maximumFractionDigits:digits}) : '-'
     )
-    const tsToTime = (ts) => {
-      if (!ts) return '-'
-      return new Date(ts).toLocaleTimeString('zh-CN', {hour12:false})
-    }
-    const statusLabel = (value) => ({
-      filled:'已成交', accepted:'挂单中', canceled:'已撤销', rejected:'已拒绝', new:'新订单',
-    }[value] || value)
+    const tsToTime = (ts) => ts ? new Date(ts).toLocaleTimeString('zh-CN', {hour12:false}) : '-'
+    const statusLabel = (value) => ({filled:'已成交', accepted:'挂单中', canceled:'已撤销', rejected:'已拒绝', new:'新订单'}[value] || value)
     const signClass = (value) => Number(value || 0) >= 0 ? 'pos' : 'neg'
-    const healthBadge = (value) => value === 'ok' ? 'badge badge-ok' : value === 'degraded' ? 'badge badge-err' : 'badge badge-idle'
+    const signedMoney = (value) => `${Number(value || 0) >= 0 ? '+' : '-'}$${fmt(Math.abs(Number(value || 0)))}`
     const priceAgeMs = (info) => Number(info?.age_ms ?? 0)
     const freshnessText = (info) => {
-      const age = priceAgeMs(info)
       if (!info || info.age_ms == null) return '-'
-      if (age < 1000) return age + ' ms'
-      return (age / 1000).toFixed(1) + ' s'
+      const age = priceAgeMs(info)
+      return age < 1000 ? age + ' ms' : (age / 1000).toFixed(1) + ' s'
     }
+    const priceChangeText = (symbol) => {
+      const value = prices[symbol]?.change_24h
+      if (value == null) return '-'
+      return `${value >= 0 ? '+' : ''}${value}%`
+    }
+    const priceChangeClass = (symbol) => Number(prices[symbol]?.change_24h || 0) >= 0 ? 'pos' : 'neg'
     const flash = (message) => {
       toast.value = message
       setTimeout(() => { toast.value = '' }, 2200)
     }
 
+    const loadUniverse = async () => {
+      const payload = await fetch(API+'/api/universe').then(r=>r.json())
+      universe.name = payload.name
+      universe.count = payload.count
+      universe.symbols = payload.symbols || []
+      if (universe.symbols.length && !universe.symbols.some(row => row.symbol === chartSymbol.value)) {
+        chartSymbol.value = universe.symbols[0].symbol
+      }
+    }
     const loadPrices = async () => {
       const rows = await fetch(API+'/api/prices').then(r=>r.json())
       Object.keys(prices).forEach(key => delete prices[key])
       Object.assign(prices, rows)
     }
-
     const loadAll = async () => {
       try {
-        const [s,r1,r2,r3,r4,r5,r6,r7] = await Promise.all([
+        const [s,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = await Promise.all([
           fetch(API+'/api/status').then(r=>r.json()),
           fetch(API+'/api/prices').then(r=>r.json()),
-          fetch(API+'/api/orders?limit=80&status='+orderStatusFilter.value).then(r=>r.json()),
-          fetch(API+'/api/fills?limit=80').then(r=>r.json()),
+          fetch(API+'/api/orders?limit=120&status='+orderStatusFilter.value).then(r=>r.json()),
+          fetch(API+'/api/fills?limit=120').then(r=>r.json()),
           fetch(API+'/api/positions').then(r=>r.json()),
           fetch(API+'/api/strategies').then(r=>r.json()),
           fetch(API+'/api/paper_metrics').then(r=>r.json()),
           fetch(API+'/api/data_health').then(r=>r.json()),
+          fetch(API+'/api/universe').then(r=>r.json()),
+          fetch(API+'/api/strategy_matrix').then(r=>r.json()),
+          fetch(API+'/api/recent_trades?limit=80').then(r=>r.json()),
+          fetch(API+'/api/risk_events?limit=80').then(r=>r.json()),
         ])
         Object.assign(status, s)
         Object.keys(prices).forEach(key => delete prices[key])
         Object.assign(prices, r1)
         Object.assign(paperMetrics, r6)
         Object.assign(dataHealth, r7)
+        Object.assign(universe, r8)
+        Object.assign(strategyMatrix, r9)
         orders.value = r2
         fills.value = r3
         positions.value = r4
         strategies.value = r5
+        recentTrades.value = r10
+        riskEvents.value = r11
       } catch(e) {}
     }
-
     const loadOrders = async () => {
-      orders.value = await fetch(API+'/api/orders?limit=80&status='+orderStatusFilter.value).then(r=>r.json())
+      orders.value = await fetch(API+'/api/orders?limit=120&status='+orderStatusFilter.value).then(r=>r.json())
     }
-
     const loadPriceHistory = async () => {
-      priceHistory.value = await fetch(API+'/api/price_history?symbol='+chartSymbol.value+'&tf='+chartTF.value+'&n=240').then(r=>r.json())
+      priceHistory.value = await fetch(API+'/api/price_history?symbol='+chartSymbol.value+'&tf='+chartTF.value+'&n=260').then(r=>r.json())
       drawPriceChart()
     }
-
     const loadBalanceHistory = async () => {
       balanceHistory.value = await fetch(API+'/api/balance_history?limit=500').then(r=>r.json())
-      drawBalanceChart()
     }
-
+    const selectSymbol = async (symbol) => {
+      chartSymbol.value = symbol
+      await loadPriceHistory()
+    }
     const startSim = async () => {
       await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start'})})
       await loadAll()
@@ -786,22 +650,15 @@ createApp({
     const randomOrder = async () => {
       await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'random_order'})})
       await loadAll()
-      flash('已发送随机下单请求')
+      flash('已发送样本烟测')
     }
-
-    const chartGrid = {
-      color:'rgba(100,116,139,.16)',
-      tickColor:'rgba(100,116,139,.18)',
-    }
-    const chartTicks = { color:'#64748b', font:{size:11} }
 
     const ma = (data, period) => data.map((_, index) => {
-        if (index < period - 1) return null
-        let sum = 0
-        for (let cursor = index - period + 1; cursor <= index; cursor++) sum += data[cursor]
-        return sum / period
-      })
-
+      if (index < period - 1) return null
+      let sum = 0
+      for (let cursor = index - period + 1; cursor <= index; cursor++) sum += data[cursor]
+      return sum / period
+    })
     const ensurePriceChart = () => {
       const el = document.getElementById('priceChart')
       if (!el || !window.LightweightCharts) return false
@@ -809,17 +666,17 @@ createApp({
       priceChart = LightweightCharts.createChart(el, {
         width:el.clientWidth,
         height:el.clientHeight,
-        layout:{background:{type:'solid',color:'transparent'},textColor:'#334155',fontFamily:'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'},
-        grid:{vertLines:{color:'rgba(148,163,184,.18)'},horzLines:{color:'rgba(148,163,184,.18)'}},
+        layout:{background:{type:'solid',color:'transparent'},textColor:'#848e9c',fontFamily:'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'},
+        grid:{vertLines:{color:'rgba(132,142,156,.14)'},horzLines:{color:'rgba(132,142,156,.12)'}},
         crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-        rightPriceScale:{borderColor:'#dbe4ee',scaleMargins:{top:.08,bottom:.24}},
-        timeScale:{borderColor:'#dbe4ee',timeVisible:true,secondsVisible:false},
+        rightPriceScale:{borderColor:'#2b3139',scaleMargins:{top:.08,bottom:.24}},
+        timeScale:{borderColor:'#2b3139',timeVisible:true,secondsVisible:false},
       })
       candleSeries = priceChart.addCandlestickSeries({
-        upColor:'#16a34a',downColor:'#dc2626',
-        borderUpColor:'#15803d',borderDownColor:'#b91c1c',
-        wickUpColor:'#15803d',wickDownColor:'#b91c1c',
-        priceLineColor:'#2563eb',
+        upColor:'#0ecb81',downColor:'#f6465d',
+        borderUpColor:'#0ecb81',borderDownColor:'#f6465d',
+        wickUpColor:'#0ecb81',wickDownColor:'#f6465d',
+        priceLineColor:'#f0b90b',
       })
       volumeSeries = priceChart.addHistogramSeries({
         priceFormat:{type:'volume'},
@@ -828,8 +685,8 @@ createApp({
         priceLineVisible:false,
       })
       volumeSeries.priceScale().applyOptions({scaleMargins:{top:.78,bottom:0}})
-      ma20Series = priceChart.addLineSeries({color:'#d97706',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
-      ma50Series = priceChart.addLineSeries({color:'#0f766e',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
+      ma20Series = priceChart.addLineSeries({color:'#f0b90b',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
+      ma50Series = priceChart.addLineSeries({color:'#3b82f6',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
       chartResizeObserver = new ResizeObserver(entries => {
         const rect = entries[0]?.contentRect
         if (rect && priceChart) priceChart.applyOptions({width:rect.width,height:rect.height})
@@ -837,21 +694,17 @@ createApp({
       chartResizeObserver.observe(el)
       return true
     }
-
     const drawPriceChart = () => {
       if (!ensurePriceChart()) return
       const bars = priceHistory.value
       const closeData = bars.map(bar => bar.c)
       const ma20 = ma(closeData,20)
       const ma50 = ma(closeData,50)
-      const candles = bars.map(bar => ({
-        time:Math.floor(bar.ts / 1000),
-        open:bar.o, high:bar.h, low:bar.l, close:bar.c,
-      }))
+      const candles = bars.map(bar => ({time:Math.floor(bar.ts / 1000),open:bar.o,high:bar.h,low:bar.l,close:bar.c}))
       const volumes = bars.map(bar => ({
         time:Math.floor(bar.ts / 1000),
         value:bar.v || 0,
-        color:bar.c >= bar.o ? 'rgba(22,163,74,.34)' : 'rgba(220,38,38,.28)',
+        color:bar.c >= bar.o ? 'rgba(14,203,129,.34)' : 'rgba(246,70,93,.30)',
       }))
       const lineData = (rows) => rows
         .map((value, index) => value == null ? null : ({time:Math.floor(bars[index].ts / 1000), value}))
@@ -860,46 +713,8 @@ createApp({
       volumeSeries.setData(volumes)
       ma20Series.setData(lineData(ma20))
       ma50Series.setData(lineData(ma50))
-      if (candles.length) {
-        priceChart.timeScale().fitContent()
-      }
+      if (candles.length) priceChart.timeScale().fitContent()
     }
-
-    const drawBalanceChart = () => {
-      const ctx = document.getElementById('balanceChart')
-      if (!ctx) return
-      const rows = balanceHistory.value
-      const source = rows.length >= 2 ? rows : [
-        {ts:Date.now()-60000, portfolio_value:status.portfolio_value},
-        {ts:Date.now(), portfolio_value:status.portfolio_value},
-      ]
-      const labels = source.map(row => new Date(row.ts || row.captured_at || Date.now()).toLocaleTimeString('zh-CN', {hour12:false}))
-      const values = source.map(row => row.balance || row.portfolio_value || status.portfolio_value || 10000)
-      const start = values[0] || 0
-      const pnl = values.map(value => value - start)
-      if (balanceChart) balanceChart.destroy()
-      balanceChart = new Chart(ctx, {
-        type:'line',
-        data:{
-          labels,
-          datasets:[
-            {label:'组合价值',data:values,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.10)',fill:true,tension:.2,pointRadius:0,yAxisID:'y'},
-            {label:'累计盈亏',data:pnl,borderColor:'#059669',borderDash:[5,4],fill:false,tension:0,pointRadius:0,yAxisID:'y1'},
-          ]
-        },
-        options:{
-          responsive:true, maintainAspectRatio:false, animation:false,
-          interaction:{mode:'nearest',intersect:false},
-          scales:{
-            x:{grid:chartGrid,ticks:{...chartTicks,maxTicksLimit:10}},
-            y:{position:'left',grid:chartGrid,ticks:{...chartTicks,callback:value=>'$'+Number(value).toLocaleString()}},
-            y1:{position:'right',grid:{drawOnChartArea:false},ticks:{...chartTicks,callback:value=>'$'+Number(value).toLocaleString()}},
-          },
-          plugins:{legend:{labels:{color:'#334155',boxWidth:10,usePointStyle:true}}},
-        }
-      })
-    }
-
     const connectWS = () => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       ws = new WebSocket(proto+'://'+location.host+'/ws')
@@ -920,16 +735,14 @@ createApp({
     }
 
     onMounted(async () => {
+      await loadUniverse()
       await loadAll()
       await loadPriceHistory()
       await loadBalanceHistory()
       connectWS()
       pricePollTimer = setInterval(loadPrices, 1000)
       chartPollTimer = setInterval(loadPriceHistory, 3000)
-      pollTimer = setInterval(async () => {
-        await loadAll()
-        if (Math.random() < 0.5) await loadBalanceHistory()
-      }, 10000)
+      pollTimer = setInterval(async () => { await loadAll(); if (Math.random() < 0.5) await loadBalanceHistory() }, 8000)
     })
     onBeforeUnmount(() => {
       if (ws) ws.close()
@@ -938,16 +751,15 @@ createApp({
       if (chartPollTimer) clearInterval(chartPollTimer)
       if (chartResizeObserver) chartResizeObserver.disconnect()
     })
-
     watch(chartSymbol, () => loadPriceHistory())
     watch(chartTF, () => loadPriceHistory())
 
     return {
-      status,paperMetrics,dataHealth,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
-      chartSymbol,chartTF,strategyFilter,orderStatusFilter,toast,
+      status,paperMetrics,dataHealth,universe,strategyMatrix,prices,orders,fills,positions,strategies,recentTrades,riskEvents,
+      balanceHistory,priceHistory,chartSymbol,chartTF,strategyFilter,orderStatusFilter,activeTab,toast,
       filteredOrders,isRunning,activePrice,
-      fmt,tsToTime,statusLabel,signClass,healthBadge,priceAgeMs,freshnessText,
-      loadAll,loadPrices,loadOrders,loadPriceHistory,loadBalanceHistory,
+      fmt,tsToTime,statusLabel,signClass,signedMoney,priceAgeMs,freshnessText,priceChangeText,priceChangeClass,
+      loadAll,loadPrices,loadOrders,loadPriceHistory,loadBalanceHistory,selectSymbol,
       startSim,stopSim,randomOrder,
     }
   }

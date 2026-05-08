@@ -10,7 +10,7 @@ def test_dashboard_static_page_renders_paper_metrics_panel() -> None:
     assert "/api/paper_metrics" in html
     assert "filled_notional" in html
     assert "cash_pnl" in html
-    assert "risk_events.total" in html
+    assert "paperMetrics.risk_events.total" in html
 
 
 def test_dashboard_static_page_renders_data_health_panel() -> None:
@@ -33,7 +33,8 @@ def test_dashboard_static_page_uses_full_width_trading_terminal_layout() -> None
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
     assert "terminal-shell" in html
-    assert "operations-grid" in html
+    assert "exchange-grid" in html
+    assert "bottom-tabs" in html
     assert "max-w-[1500px]" not in html
     assert "mx-auto" not in html
 
@@ -41,18 +42,18 @@ def test_dashboard_static_page_uses_full_width_trading_terminal_layout() -> None
 def test_dashboard_static_page_avoids_emoji_action_icons() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
-    assert "🎲" not in html
+    assert "🎉" not in html
     assert "▶" not in html
     assert "⏸" not in html
 
 
-def test_dashboard_static_page_uses_light_professional_theme() -> None:
+def test_dashboard_static_page_uses_binance_terminal_theme() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
-    assert "--bg:#eef3f8" in html
-    assert "--panel:#ffffff" in html
-    assert "--text:#0f172a" in html
-    assert "--bg:#081018" not in html
+    assert "--bg:#181a20" in html
+    assert "--panel:#1e2329" in html
+    assert "--accent:#f0b90b" in html
+    assert "--bg:#eef3f8" not in html
 
 
 def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
@@ -82,7 +83,7 @@ def test_dashboard_static_page_uses_professional_candlestick_chart() -> None:
     assert "addCandlestickSeries" in html
     assert "addHistogramSeries" in html
     assert "当前价" in html
-    assert "更新延迟" in html
+    assert "延迟" in html
     assert "<canvas id=\"priceChart\"" not in html
 
 
@@ -101,14 +102,43 @@ def test_dashboard_static_page_uses_modern_visual_system() -> None:
         "command-center",
         "brand-lockup",
         "metric-card",
-        "market-workbench",
+        "exchange-grid",
         "chart-card",
-        "side-stack",
-        "mini-stat",
+        "market-list",
+        "order-flow",
     ]:
         assert token in html
 
-    assert "box-shadow:0 18px 48px rgba(15,23,42,.10)" in html
-    assert "border-radius:10px" in html
-    assert "background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%)" in html
-    assert "width:max-content" in html
+    assert "border-radius:6px" in html
+    assert "background:var(--panel)" in html
+    assert "grid-template-columns:310px minmax(0,1fr) 360px" in html
+
+
+def test_dashboard_static_page_uses_binance_inspired_terminal_layout() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    for token in [
+        "ticker-strip",
+        "exchange-grid",
+        "market-list",
+        "order-flow",
+        "strategy-matrix",
+        "bottom-tabs",
+        "交易矩阵",
+        "Top30 主流币池",
+        "/api/universe",
+        "/api/strategy_matrix",
+        "/api/recent_trades",
+    ]:
+        assert token in html
+
+    assert "#f0b90b" in html.lower()
+    assert "Binance logo" not in html
+
+
+def test_dashboard_static_page_does_not_hardcode_only_btc_eth_symbols() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "universe.symbols" in html
+    assert "<option>BTCUSDT</option>" not in html
+    assert "<option>ETHUSDT</option>" not in html

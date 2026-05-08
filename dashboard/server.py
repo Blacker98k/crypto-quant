@@ -24,6 +24,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.data.exchange.base import Bar
 from core.data.exchange.binance_spot import BinanceSpotAdapter
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
@@ -33,10 +34,18 @@ from core.db.migration_runner import MigrationRunner
 from core.execution.paper_engine import PaperMatchingEngine
 from core.monitor.market_health import summarize_market_health
 from core.monitor.paper_metrics import paper_metrics
+from dashboard.paper_trading import (
+    DEFAULT_TOP30_USDT,
+    UNIVERSE_NAME,
+    DashboardPaperTrader,
+    fetch_binance_recent_klines,
+    fetch_binance_top_usdt_symbols,
+    upsert_dashboard_universe,
+)
 
 # 代理配置（根据环境变量或写死）
 _PROXY = "http://127.0.0.1:57777"
-_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+_SYMBOLS = DEFAULT_TOP30_USDT
 _SPOT_PRICE_URL = "https://api.binance.com/api/v3/ticker/price"
 
 
@@ -93,13 +102,17 @@ class LiveDataFeeder:
         parquet_io: ParquetIO,
         repo: SqliteRepo,
         engine: PaperMatchingEngine,
+        trader: DashboardPaperTrader | None = None,
         proxy: str = "",
+        symbols: list[str] | None = None,
     ):
         self._cache = cache
         self._parquet_io = parquet_io
         self._repo = repo
         self._engine = engine
+        self._trader = trader
         self._proxy = proxy
+        self._symbols = list(symbols or _SYMBOLS)
         self._ws: WsSubscriber | None = None
         self._exchange: BinanceSpotAdapter | None = None
         self._exchange_task: asyncio.Task | None = None
@@ -130,12 +143,14 @@ class LiveDataFeeder:
         # WS 订阅（不依赖 exchange adapter 预加载）
         self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
 
-        for sym in _SYMBOLS:
+        await self._refresh_universe()
+
+        for sym in self._symbols:
             self._ws.subscribe_candles(sym, "1m", self._on_bar)
-        self._ws.subscribe_tickers(_SYMBOLS)
+        self._ws.subscribe_tickers(self._symbols)
 
         await self._ws.connect(proxy=self._proxy)
-        print(f"  [LiveFeed] WS 已连接，订阅: {', '.join(_SYMBOLS)} 1m")
+        print(f"  [LiveFeed] WS 已连接，订阅: {', '.join(self._symbols)} 1m")
 
         # 后台加载 exchange（不录响启动）
         self._exchange_task = asyncio.create_task(self._lazy_load_exchange())
@@ -147,6 +162,10 @@ class LiveDataFeeder:
     def _on_bar(self, bar) -> None:
         """收到收盘 K 线时触发引擎检查。"""
         self._bar_counter += 1
+        if self._trader and getattr(bar, "closed", False):
+            handles = self._trader.on_bar(bar, now_ms=int(time.time() * 1000))
+            if handles:
+                print(f"  [PaperTrader] {bar.symbol} generated {len(handles)} paper orders")
         if self._bar_counter % 5 == 0:
             print(f"  [LiveFeed] 已收 {self._bar_counter} 根 K 线, "
                   f"{bar.symbol} {bar.timeframe} c={bar.c:.2f}")
@@ -176,7 +195,7 @@ class LiveDataFeeder:
         import aiohttp
 
         captured_at_ms = int(time.time() * 1000)
-        params = {"symbols": json.dumps(_SYMBOLS)}
+        params = {"symbols": json.dumps(self._symbols)}
         timeout = aiohttp.ClientTimeout(total=5)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(
@@ -187,6 +206,33 @@ class LiveDataFeeder:
                 resp.raise_for_status()
                 rows = await resp.json()
         _apply_rest_price_rows(self._cache, rows, captured_at_ms=captured_at_ms)
+
+    async def _refresh_universe(self) -> None:
+        try:
+            symbols = await fetch_binance_top_usdt_symbols(proxy=self._proxy, limit=30)
+        except Exception as exc:
+            symbols = DEFAULT_TOP30_USDT
+            self._repo.log_run("binance_usdt_top30_universe", "fail", note=str(exc)[:200])
+        else:
+            self._repo.log_run("binance_usdt_top30_universe", "ok")
+        upsert_dashboard_universe(self._repo, symbols)
+        self._symbols = symbols
+        if self._trader:
+            self._trader.replace_symbols(symbols)
+        await self._backfill_recent_1m(symbols)
+
+    async def _backfill_recent_1m(self, symbols: list[str]) -> None:
+        for symbol in symbols:
+            try:
+                bars = await fetch_binance_recent_klines(symbol, "1m", proxy=self._proxy, limit=20)
+            except Exception as exc:
+                self._repo.log_run(f"binance_1m_warmup_{symbol}", "fail", note=str(exc)[:200])
+                continue
+            for bar in bars:
+                self._cache.push_bar(bar)
+            if bars:
+                self._parquet_io.write_bars(bars)
+                self._repo.log_run(f"binance_1m_warmup_{symbol}", "ok")
 
     async def stop(self) -> None:
         """关闭连接。"""
@@ -212,6 +258,7 @@ def create_app(
     engine: PaperMatchingEngine,
     feeder: LiveDataFeeder,
     static_dir: Path,
+    trader: DashboardPaperTrader | None = None,
 ) -> FastAPI:
     app = FastAPI(title="crypto-quant Dashboard (Live)", version="0.2.0")
     app.state.cache = cache
@@ -221,6 +268,7 @@ def create_app(
     app.state.feeder = feeder
     app.state.usdt_balance = 10000.0
     app.state.balance_history: list[dict] = []
+    app.state.trader = trader
 
     # ─── REST API ──────────────────────────────────────────────────────────
 
@@ -276,6 +324,28 @@ def create_app(
                 "age_ms": age_ms,
             }
         return result
+
+    @app.get("/api/universe")
+    def api_universe():
+        rows = repo.list_symbols(exchange="binance", stype="perp", universe=UNIVERSE_NAME)
+        prices = cache.latest_prices_all()
+        price_meta = cache.latest_price_meta_all()
+        now_ms = int(time.time() * 1000)
+        symbols = []
+        for row in rows:
+            symbol = row["symbol"]
+            updated_at = price_meta.get(symbol, {}).get("updated_at")
+            symbols.append(
+                {
+                    "symbol": symbol,
+                    "base": row["base"],
+                    "quote": row["quote"],
+                    "universe": row["universe"],
+                    "price": prices.get(symbol),
+                    "age_ms": max(0, now_ms - int(updated_at)) if updated_at else None,
+                }
+            )
+        return {"name": UNIVERSE_NAME, "count": len(symbols), "symbols": symbols}
 
     @app.get("/api/price_history")
     def api_price_history(symbol: str = "BTCUSDT", tf: str = "1m", n: int = 200):
@@ -356,7 +426,7 @@ def create_app(
             "GROUP BY o.strategy_version"
         ).fetchall()
         fills_by_strategy = {row["strategy_version"]: row["fills_count"] for row in fills}
-        return [
+        payload = [
             {
                 "name": row["strategy_version"] or "unknown",
                 "orders_count": row["orders_count"],
@@ -364,6 +434,65 @@ def create_app(
                 "win_rate": 0.0,
                 "total_pnl": 0.0,
                 "roi": 0.0,
+            }
+            for row in rows
+        ]
+        seen = {row["name"] for row in payload}
+        if trader:
+            for strategy in trader.strategies:
+                if strategy not in seen:
+                    payload.append(
+                        {
+                            "name": strategy,
+                            "orders_count": 0,
+                            "fills_count": 0,
+                            "win_rate": 0.0,
+                            "total_pnl": 0.0,
+                            "roi": 0.0,
+                        }
+                    )
+        return payload
+
+    @app.get("/api/strategy_matrix")
+    def api_strategy_matrix():
+        if trader:
+            return trader.strategy_matrix()
+        return {"symbols": [], "strategies": [], "cells": []}
+
+    @app.get("/api/recent_trades")
+    def api_recent_trades(
+        limit: int = 80,
+        symbol: str | None = None,
+        strategy_id: str | None = None,
+    ):
+        clauses = []
+        params: list[object] = []
+        if symbol:
+            clauses.append("s.symbol = ?")
+            params.append(symbol)
+        if strategy_id:
+            clauses.append("o.strategy_version = ?")
+            params.append(strategy_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = repo._conn.execute(
+            "SELECT f.*, s.symbol as sym, o.side, o.strategy_version as strategy "
+            "FROM fills f JOIN orders o ON f.order_id = o.id "
+            "LEFT JOIN symbols s ON o.symbol_id = s.id "
+            f"{where} ORDER BY f.ts DESC LIMIT ?",
+            (*params, max(1, min(limit, 500))),
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "order_id": row["order_id"],
+                "symbol": row["sym"] or "?",
+                "side": row["side"],
+                "strategy": row["strategy"],
+                "price": row["price"],
+                "quantity": row["quantity"],
+                "fee": row["fee"],
+                "notional": round(row["price"] * row["quantity"], 4),
+                "ts": row["ts"],
             }
             for row in rows
         ]
@@ -376,7 +505,24 @@ def create_app(
         elif action == "stop":
             await feeder.stop()
         elif action == "random_order":
-            pass
+            if trader:
+                symbol = trader.symbols[0] if trader.symbols else "BTCUSDT"
+                price = cache.latest_price(symbol) or 100.0
+                now_ms = int(time.time() * 1000)
+                trader.on_bar(
+                    Bar(
+                        symbol=symbol,
+                        timeframe="1m",
+                        ts=now_ms,
+                        o=price,
+                        h=price * 1.002,
+                        l=price * 0.998,
+                        c=price,
+                        v=1.0,
+                        closed=True,
+                    ),
+                    now_ms=now_ms,
+                )
         return {
             "ok": action in {"start", "stop", "random_order"},
             "action": action,
@@ -555,10 +701,12 @@ def main() -> None:
             conn.commit()
 
     # 3. 创建 PaperMatchingEngine
+    upsert_dashboard_universe(repo, _SYMBOLS)
     engine = PaperMatchingEngine(repo, get_price=lambda s: cache.latest_price(s))
+    trader = DashboardPaperTrader(repo=repo, cache=cache, engine=engine, symbols=_SYMBOLS)
 
     # 4. 创建 LiveFeed 并启动（后台任务在 uvicorn 事件循环中运行）
-    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, proxy=_PROXY)
+    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, trader=trader, proxy=_PROXY)
 
     # 5. 构建 FastAPI + 生命周期管理
     from contextlib import asynccontextmanager
@@ -572,7 +720,7 @@ def main() -> None:
         await feeder.stop()
         conn.close()
 
-    app = create_app(cache, repo, parquet_io, engine, feeder, static_dir)
+    app = create_app(cache, repo, parquet_io, engine, feeder, static_dir, trader=trader)
     app.router.lifespan_context = lifespan
 
     print("  浏览器打开: http://localhost:8089")
