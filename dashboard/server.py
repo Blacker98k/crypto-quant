@@ -48,6 +48,7 @@ _PROXY = "http://127.0.0.1:57777"
 _SYMBOLS = DEFAULT_TOP30_USDT
 _FUTURES_PRICE_URL = "https://fapi.binance.com/fapi/v1/ticker/price"
 _FUTURES_24H_URL = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+_DATA_HEALTH_DEFAULT_WINDOW_MS = 10 * 60_000
 
 
 # ─── 工兛函数 ──────────────────────────────────────────────────────────────────
@@ -535,7 +536,12 @@ def create_app(
 
     @app.get("/api/data_health")
     def api_data_health(limit: int = 100, since_ms: int | None = None):
-        return summarize_market_health(repo, limit=limit, since_ms=since_ms)
+        start_ms = (
+            int(time.time() * 1000) - _DATA_HEALTH_DEFAULT_WINDOW_MS
+            if since_ms is None
+            else since_ms
+        )
+        return summarize_market_health(repo, limit=limit, since_ms=start_ms)
 
     @app.get("/api/strategies")
     def api_strategies():

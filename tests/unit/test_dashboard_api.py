@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -386,6 +387,26 @@ def test_dashboard_data_health_endpoint_summarizes_run_log(
     assert payload["by_status"] == {"fail": 1, "ok": 1}
     assert payload["endpoints"] == ["binance_usdm_public_ticker"]
     assert payload["recent_failures"][0]["note"] == "timeout"
+
+
+def test_dashboard_data_health_endpoint_ignores_stale_failures_by_default(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    stale_id = repo.log_run("dashboard_ws_watchdog", "fail", note="old stale stream")
+    tmp_db.execute(
+        "UPDATE run_log SET captured_at=? WHERE id=?",
+        (int(time.time() * 1000) - 20 * 60_000, stale_id),
+    )
+    tmp_db.commit()
+    repo.log_run("binance_usdt_top30_universe", "ok", latency_ms=50)
+    app = _build_app(tmp_path, tmp_db)
+
+    payload = _call_route(app, "/api/data_health", limit=10, since_ms=None)
+
+    assert payload["status"] == "ok"
+    assert payload["by_status"] == {"ok": 1}
+    assert payload["recent_failures"] == []
 
 
 def test_dashboard_positions_use_open_positions_table(
