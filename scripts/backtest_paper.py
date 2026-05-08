@@ -17,7 +17,9 @@ if str(_PROJECT_ROOT) not in sys.path:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default="BTCUSDT")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols for batch runs.")
     parser.add_argument("--timeframe", default="1h")
+    parser.add_argument("--timeframes", default=None, help="Comma-separated timeframes for batch runs.")
     parser.add_argument("--data-root", type=Path, default=Path("data"))
     parser.add_argument("--db", type=Path, default=Path("data/historical-paper.sqlite"))
     parser.add_argument("--start-ms", type=int, default=None)
@@ -40,29 +42,57 @@ def _open_repo(db_path: Path):
     return conn, SqliteRepo(conn)
 
 
+def _split_csv(value: str, *, upper: bool = False) -> tuple[str, ...]:
+    items = (item.strip() for item in value.split(","))
+    if upper:
+        return tuple(item.upper() for item in items if item)
+    return tuple(item for item in items if item)
+
+
 def main() -> None:
     from core.data.parquet_io import ParquetIO
     from core.research.historical_paper_backtest import (
         HistoricalPaperBacktestConfig,
+        HistoricalPaperBatchBacktestConfig,
         run_historical_paper_backtest,
+        run_historical_paper_backtest_batch,
     )
 
     args = _parse_args()
+    symbols = _split_csv(args.symbols, upper=True) if args.symbols else (args.symbol.upper(),)
+    timeframes = _split_csv(args.timeframes) if args.timeframes else (args.timeframe,)
+    is_batch = args.symbols is not None or args.timeframes is not None or len(symbols) * len(timeframes) > 1
     conn, repo = _open_repo(args.db)
     try:
-        payload = run_historical_paper_backtest(
-            repo,
-            ParquetIO(args.data_root),
-            HistoricalPaperBacktestConfig(
-                symbol=args.symbol,
-                timeframe=args.timeframe,
-                start_ms=args.start_ms,
-                end_ms=args.end_ms,
-                n=args.n,
-                report_path=args.report,
-                summary_path=args.summary,
-            ),
-        )
+        parquet_io = ParquetIO(args.data_root)
+        if is_batch:
+            payload = run_historical_paper_backtest_batch(
+                repo,
+                parquet_io,
+                HistoricalPaperBatchBacktestConfig(
+                    symbols=symbols,
+                    timeframes=timeframes,
+                    start_ms=args.start_ms,
+                    end_ms=args.end_ms,
+                    n=args.n,
+                    report_path=args.report,
+                    summary_path=args.summary,
+                ),
+            )
+        else:
+            payload = run_historical_paper_backtest(
+                repo,
+                parquet_io,
+                HistoricalPaperBacktestConfig(
+                    symbol=symbols[0],
+                    timeframe=timeframes[0],
+                    start_ms=args.start_ms,
+                    end_ms=args.end_ms,
+                    n=args.n,
+                    report_path=args.report,
+                    summary_path=args.summary,
+                ),
+            )
     finally:
         conn.close()
 

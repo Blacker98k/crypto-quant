@@ -8,7 +8,9 @@ from pathlib import Path
 from core.data.exchange.base import Bar
 from core.research.historical_paper_backtest import (
     HistoricalPaperBacktestConfig,
+    HistoricalPaperBatchBacktestConfig,
     run_historical_paper_backtest,
+    run_historical_paper_backtest_batch,
 )
 
 
@@ -120,3 +122,74 @@ def test_backtest_paper_cli_reads_parquet_and_writes_report(
     assert payload["price_source"] == "historical_parquet"
     assert json.loads(report_path.read_text(encoding="utf-8")) == payload
     assert json.loads(summary_path.read_text(encoding="utf-8"))["passed"] == 1
+
+
+def test_historical_paper_backtest_batch_isolates_timeframe_state(
+    sqlite_repo,
+    parquet_io,
+    tmp_path: Path,
+) -> None:
+    parquet_io.write_bars(_bars(symbol="BTCUSDT", timeframe="1h"))
+    parquet_io.write_bars(_bars(symbol="BTCUSDT", timeframe="4h"))
+    report_path = tmp_path / "historical-batch.jsonl"
+    summary_path = tmp_path / "historical-batch-summary.json"
+
+    payload = run_historical_paper_backtest_batch(
+        sqlite_repo,
+        parquet_io,
+        HistoricalPaperBatchBacktestConfig(
+            symbols=("BTCUSDT",),
+            timeframes=("1h", "4h"),
+            report_path=report_path,
+            summary_path=summary_path,
+        ),
+    )
+
+    assert payload["passed"] is True
+    assert payload["cycles"] == 2
+    assert [cycle["cycle"] for cycle in payload["results"]] == [1, 2]
+    assert [cycle["timeframe"] for cycle in payload["results"]] == ["1h", "4h"]
+    assert [cycle["result"]["orders"] for cycle in payload["results"]] == [2, 2]
+    assert [json.loads(line) for line in report_path.read_text(encoding="utf-8").splitlines()] == payload[
+        "results"
+    ]
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["cycles"] == 2
+    assert summary["passed"] == 2
+    assert summary["totals"]["orders"] == 4
+
+
+def test_backtest_paper_cli_runs_batch_symbols_and_timeframes(
+    parquet_io,
+    tmp_path: Path,
+) -> None:
+    parquet_io.write_bars(_bars(symbol="BTCUSDT", timeframe="1h"))
+    parquet_io.write_bars(_bars(symbol="ETHUSDT", timeframe="1h"))
+    db_path = tmp_path / "historical-batch.sqlite"
+    summary_path = tmp_path / "historical-batch-summary.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/backtest_paper.py",
+            "--symbols",
+            "BTCUSDT,ETHUSDT",
+            "--timeframes",
+            "1h",
+            "--data-root",
+            str(parquet_io._root),
+            "--db",
+            str(db_path),
+            "--summary",
+            str(summary_path),
+        ],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["passed"] is True
+    assert payload["cycles"] == 2
+    assert [cycle["symbol"] for cycle in payload["results"]] == ["BTCUSDT", "ETHUSDT"]
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["totals"]["fills"] == 4

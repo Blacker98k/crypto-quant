@@ -26,17 +26,29 @@ class HistoricalPaperBacktestConfig:
     summary_path: Path | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class HistoricalPaperBatchBacktestConfig:
+    symbols: tuple[str, ...] = ("BTCUSDT",)
+    timeframes: tuple[str, ...] = ("1h",)
+    start_ms: int | None = None
+    end_ms: int | None = None
+    n: int | None = None
+    report_path: Path | None = None
+    summary_path: Path | None = None
+
+
 class HistoricalPulseStrategy(Strategy):
     """Open on the first historical bar and close on the last bar."""
 
-    name = "historical_pulse"
     version = "dev"
-    __slots__ = ("_close_at_ms", "_symbol", "_timeframe")
+    __slots__ = ("_close_at_ms", "_opened", "_symbol", "_timeframe", "name")
 
     def __init__(self, symbol: str, timeframe: str, close_at_ms: int) -> None:
         self._symbol = symbol
         self._timeframe = timeframe
         self._close_at_ms = close_at_ms
+        self._opened = False
+        self.name = f"historical_pulse_{symbol}_{timeframe}"
 
     def required_data(self) -> DataRequirement:
         return DataRequirement(
@@ -48,9 +60,9 @@ class HistoricalPulseStrategy(Strategy):
     def on_bar(self, bar: Bar, ctx: Any) -> list[Signal]:
         if bar.ts == self._close_at_ms:
             return [Signal(side="close", symbol=bar.symbol)]
-        if ctx.kv_get(f"{bar.symbol}_opened"):
+        if self._opened:
             return []
-        ctx.kv_set(f"{bar.symbol}_opened", True)
+        self._opened = True
         return [
             Signal(
                 side="long",
@@ -86,6 +98,39 @@ def run_historical_paper_backtest(
     payload = _payload(config, result, passed=passed)
     _write_outputs(payload, config)
     return payload
+
+
+def run_historical_paper_backtest_batch(
+    repo: SqliteRepo,
+    parquet_io: ParquetIO,
+    config: HistoricalPaperBatchBacktestConfig,
+) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    for symbol in config.symbols:
+        for timeframe in config.timeframes:
+            payload = run_historical_paper_backtest(
+                repo,
+                parquet_io,
+                HistoricalPaperBacktestConfig(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    start_ms=config.start_ms,
+                    end_ms=config.end_ms,
+                    n=config.n,
+                ),
+            )
+            payload["cycle"] = len(results) + 1
+            results.append(payload)
+
+    _write_batch_outputs(results, config)
+    failed = sum(1 for row in results if not row["passed"])
+    return {
+        "cycles": len(results),
+        "passed": bool(results) and failed == 0,
+        "failed": failed,
+        "results": results,
+        "summary": summarize_simulation_cycles(results),
+    }
 
 
 def _payload(
@@ -126,6 +171,27 @@ def _write_outputs(payload: dict[str, Any], config: HistoricalPaperBacktestConfi
         )
 
 
+def _write_batch_outputs(
+    results: list[dict[str, Any]],
+    config: HistoricalPaperBatchBacktestConfig,
+) -> None:
+    if config.report_path is not None:
+        with SimulationReportWriter(config.report_path) as writer:
+            for payload in results:
+                writer.write_cycle(payload)
+    if config.summary_path is not None:
+        config.summary_path.parent.mkdir(parents=True, exist_ok=True)
+        config.summary_path.write_text(
+            json.dumps(
+                summarize_simulation_cycles(results),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+
 def _seed_symbol(repo: SqliteRepo, symbol: str) -> None:
     base = symbol.removesuffix("USDT") or symbol
     repo.upsert_symbols(
@@ -147,6 +213,8 @@ def _seed_symbol(repo: SqliteRepo, symbol: str) -> None:
 
 __all__ = [
     "HistoricalPaperBacktestConfig",
+    "HistoricalPaperBatchBacktestConfig",
     "HistoricalPulseStrategy",
     "run_historical_paper_backtest",
+    "run_historical_paper_backtest_batch",
 ]

@@ -6,3 +6,5 @@
 4. Run focused tests and static checks.
 5. Run real backfill plus historical backtest smoke with Binance public data.
 6. Run full quality gates, commit, publish, and update PR #5.
+7. Extend the historical backtest with a batch symbol/timeframe runner and aggregated report output.
+8. Add regression coverage for per-run state isolation when the same symbol is replayed across multiple timeframes.
