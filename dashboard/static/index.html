@@ -8,18 +8,18 @@
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
-    --bg:#181a20;
-    --panel:#1e2329;
-    --panel-2:#252a32;
-    --panel-3:#0b0e11;
-    --line:#2b3139;
-    --muted:#848e9c;
-    --text:#eaecef;
-    --accent:#f0b90b;
-    --accent-soft:rgba(240,185,11,.12);
-    --green:#0ecb81;
-    --red:#f6465d;
-    --blue:#3b82f6;
+    --bg:#f4f7fb;
+    --panel:#ffffff;
+    --panel-2:#f8fafc;
+    --panel-3:#eef2f7;
+    --line:#d9e2ec;
+    --muted:#64748b;
+    --text:#111827;
+    --accent:#2563eb;
+    --accent-soft:rgba(37,99,235,.10);
+    --green:#059669;
+    --red:#dc2626;
+    --blue:#2563eb;
   }
   * { box-sizing:border-box }
   body {
@@ -57,19 +57,20 @@
   .text-base { font-size:16px; }
   .text-lg { font-size:18px; }
   .text-xl { font-size:20px; }
-  .text-\[\#848e9c\] { color:#848e9c; }
+  .text-\[\#848e9c\] { color:var(--muted); }
   .font-bold { font-weight:700; }
   .font-black { font-weight:900; }
   .leading-tight { line-height:1.25; }
   @media (min-width:768px) {
     .md\:grid-cols-4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
   }
-  .terminal-shell { width:100%; min-height:100vh; padding:10px; background:var(--bg); }
+  .terminal-shell { width:100%; min-height:100vh; padding:12px; background:var(--bg); }
   .panel {
     background:var(--panel);
     border:1px solid var(--line);
     border-radius:6px;
     overflow:hidden;
+    box-shadow:0 10px 30px rgba(15,23,42,.06);
   }
   .panel-head {
     min-height:38px;
@@ -79,7 +80,7 @@
     justify-content:space-between;
     gap:10px;
     border-bottom:1px solid var(--line);
-    background:#1a1d23;
+    background:var(--panel-2);
   }
   .panel-body { padding:12px; }
   .command-center {
@@ -89,9 +90,10 @@
     grid-template-columns:minmax(260px,1fr) auto;
     align-items:center;
     gap:12px;
-    background:#0b0e11;
+    background:linear-gradient(180deg,#ffffff,#f8fafc);
     border:1px solid var(--line);
     border-radius:6px;
+    box-shadow:0 12px 32px rgba(15,23,42,.08);
   }
   .brand-lockup { display:flex; align-items:center; gap:10px; min-width:0; }
   .brand-mark {
@@ -101,7 +103,7 @@
     place-items:center;
     border-radius:4px;
     background:var(--accent);
-    color:#111318;
+    color:#fff;
     font-weight:900;
     letter-spacing:0;
   }
@@ -123,7 +125,7 @@
     transition:border-color .16s ease,background-color .16s ease;
   }
   .ticker-tile:hover,
-  .ticker-tile.active { border-color:var(--accent); background:#23281f; }
+  .ticker-tile.active { border-color:var(--accent); background:#eef6ff; }
   .exchange-grid {
     display:grid;
     grid-template-columns:310px minmax(0,1fr) 360px;
@@ -138,7 +140,7 @@
     align-items:center;
     min-height:42px;
     padding:8px 10px;
-    border-bottom:1px solid rgba(43,49,57,.72);
+    border-bottom:1px solid rgba(217,226,236,.85);
     cursor:pointer;
   }
   .market-row:hover,
@@ -158,9 +160,9 @@
     height:590px;
     min-height:420px;
     background:
-      repeating-linear-gradient(90deg,transparent 0,transparent 95px,rgba(132,142,156,.08) 96px),
-      repeating-linear-gradient(0deg,transparent 0,transparent 63px,rgba(132,142,156,.07) 64px),
-      #15181e;
+      repeating-linear-gradient(90deg,transparent 0,transparent 95px,rgba(100,116,139,.10) 96px),
+      repeating-linear-gradient(0deg,transparent 0,transparent 63px,rgba(100,116,139,.08) 64px),
+      #f8fafc;
   }
   .market-chart { position:absolute; inset:0; }
   .order-flow { max-height:calc(100vh - 172px); overflow:auto; }
@@ -202,7 +204,7 @@
     transition:background-color .16s ease,border-color .16s ease,color .16s ease;
   }
   .btn:hover { border-color:var(--accent); }
-  .btn-primary { background:var(--accent); border-color:var(--accent); color:#111318; }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
   .btn-danger { background:var(--red); border-color:var(--red); color:#fff; }
   .badge {
     display:inline-flex;
@@ -217,9 +219,9 @@
     font-weight:750;
     white-space:nowrap;
   }
-  .badge-paper { color:#111318; background:var(--accent); border-color:var(--accent); }
-  .badge-buy { color:var(--green); background:rgba(14,203,129,.10); border-color:rgba(14,203,129,.35); }
-  .badge-sell { color:var(--red); background:rgba(246,70,93,.10); border-color:rgba(246,70,93,.35); }
+  .badge-paper { color:#fff; background:var(--accent); border-color:var(--accent); }
+  .badge-buy { color:var(--green); background:rgba(5,150,105,.10); border-color:rgba(5,150,105,.28); }
+  .badge-sell { color:var(--red); background:rgba(220,38,38,.10); border-color:rgba(220,38,38,.26); }
   .badge-ok { color:var(--green); }
   .badge-warn { color:var(--accent); }
   .badge-err { color:var(--red); }
@@ -234,15 +236,15 @@
     background:var(--panel);
     font-size:12px;
   }
-  .status-dot { width:7px; height:7px; border-radius:999px; background:var(--red); box-shadow:0 0 0 3px rgba(246,70,93,.16); }
-  .status-dot.live { background:var(--green); box-shadow:0 0 0 3px rgba(14,203,129,.16); }
+  .status-dot { width:7px; height:7px; border-radius:999px; background:var(--red); box-shadow:0 0 0 3px rgba(220,38,38,.16); }
+  .status-dot.live { background:var(--green); box-shadow:0 0 0 3px rgba(5,150,105,.16); }
   .toolbar-group { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
   .bottom-tabs {
     display:flex;
     flex-wrap:wrap;
     gap:0;
     border-bottom:1px solid var(--line);
-    background:#1a1d23;
+    background:var(--panel-2);
   }
   .tab-btn {
     min-height:38px;
@@ -263,13 +265,13 @@
     z-index:1;
     padding:8px 10px;
     color:var(--muted);
-    background:#1a1d23;
+    background:var(--panel-2);
     border-bottom:1px solid var(--line);
     text-align:left;
     white-space:nowrap;
   }
-  td { padding:7px 10px; border-bottom:1px solid rgba(43,49,57,.72); white-space:nowrap; }
-  tbody tr:hover td { background:rgba(240,185,11,.06); }
+  td { padding:7px 10px; border-bottom:1px solid rgba(217,226,236,.85); white-space:nowrap; }
+  tbody tr:hover td { background:rgba(37,99,235,.06); }
   select.btn { appearance:auto; }
   .strategy-matrix {
     display:grid;
@@ -306,10 +308,10 @@
     <div class="brand-lockup">
       <div class="brand-mark">CQ</div>
       <div class="min-w-0">
-        <div class="text-[11px] text-[#848e9c]">crypto-quant / Binance-style paper terminal</div>
+        <div class="text-[11px] text-[#848e9c]">crypto-quant / 真实行情 · 模拟交易 · 策略评估</div>
         <h1 class="text-lg font-black leading-tight">多币种量化模拟交易看板</h1>
       </div>
-      <span class="badge badge-paper">纸面撮合</span>
+      <span class="badge badge-paper">模拟撮合</span>
       <span class="status-pill">
         <span class="status-dot" :class="{live:isRunning}"></span>
         <span>{{isRunning ? '运行中' : '已停止'}}</span>
@@ -318,7 +320,7 @@
     <div class="toolbar-group justify-end">
       <button class="btn btn-primary" @click="startSim" v-if="!isRunning">启动模拟</button>
       <button class="btn btn-danger" @click="stopSim" v-else>停止模拟</button>
-      <button class="btn" @click="randomOrder">样本烟测</button>
+      <button class="btn" @click="randomOrder">生成样本</button>
       <span class="subtle">{{toast || '真实行情只读，禁止真实下单'}}</span>
     </div>
   </header>
@@ -346,11 +348,15 @@
     <div class="metric-card"><div class="label">组合价值</div><div class="value">${{fmt(status.portfolio_value)}}</div></div>
     <div class="metric-card"><div class="label">USDT 余额</div><div class="value">${{fmt(status.usdt_balance)}}</div></div>
     <div class="metric-card"><div class="label">本日盈亏</div><div class="value" :class="signClass(status.day_pnl.pnl)">{{signedMoney(status.day_pnl.pnl)}}</div><div class="subtle">{{status.day_pnl.n}} 笔成交</div></div>
+    <div class="metric-card"><div class="label">策略现金盈亏</div><div class="value" :class="signClass(paperMetrics.fills.cash_pnl)">{{signedMoney(paperMetrics.fills.cash_pnl)}}</div><div class="subtle">卖出减买入后估算</div></div>
     <div class="metric-card"><div class="label">订单总数</div><div class="value">{{paperMetrics.orders.total || 0}}</div><div class="subtle">挂单 {{status.open_orders_n}}</div></div>
     <div class="metric-card"><div class="label">成交笔数</div><div class="value">{{paperMetrics.fills.total || 0}}</div><div class="subtle">成交额 ${{fmt(paperMetrics.fills.filled_notional)}}</div></div>
-    <div class="metric-card"><div class="label">现金盈亏</div><div class="value" :class="signClass(paperMetrics.fills.cash_pnl)">{{signedMoney(paperMetrics.fills.cash_pnl)}}</div><div class="subtle">手续费 ${{fmt(paperMetrics.fills.fees)}}</div></div>
+    <div class="metric-card"><div class="label">买入成交额</div><div class="value">${{fmt(paperMetrics.fills.buy_notional)}}</div><div class="subtle">卖出 ${{fmt(paperMetrics.fills.sell_notional)}}</div></div>
+    <div class="metric-card"><div class="label">手续费</div><div class="value">${{fmt(paperMetrics.fills.fees)}}</div><div class="subtle">模拟费率累计</div></div>
     <div class="metric-card"><div class="label">持仓名义额</div><div class="value">${{fmt(paperMetrics.positions.open_notional)}}</div><div class="subtle">持仓 {{status.open_positions_n}}</div></div>
     <div class="metric-card"><div class="label">行情覆盖</div><div class="value">{{universe.count || universe.symbols.length}}</div><div class="subtle">策略 {{strategyMatrix.strategies.length}}</div></div>
+    <div class="metric-card"><div class="label">行情延迟</div><div class="value">{{freshnessText(activePrice)}}</div><div class="subtle">K线 {{status.bars_received || 0}}</div></div>
+    <div class="metric-card"><div class="label">数据健康</div><div class="value">{{healthLabel(dataHealth.status)}}</div><div class="subtle">最近失败 {{dataHealth.recent_failures.length || 0}}</div></div>
     <div class="metric-card"><div class="label">风控事件</div><div class="value">{{paperMetrics.risk_events.total || 0}}</div><div class="subtle">严重 {{status.critical_risk_events_n || 0}}</div></div>
   </section>
 
@@ -425,7 +431,7 @@
           <tbody>
             <tr v-for="trade in recentTrades" :key="'rt-'+trade.id">
               <td>{{tsToTime(trade.ts)}}</td>
-              <td><div class="font-bold">{{trade.symbol}}</div><div class="subtle">{{trade.strategy}}</div></td>
+              <td><div class="font-bold">{{trade.symbol}}</div><div class="subtle">{{strategyLabel(trade.strategy)}}</div></td>
               <td><span :class="trade.side==='buy'?'badge badge-buy':'badge badge-sell'">{{trade.side==='buy'?'买入':'卖出'}}</span></td>
               <td class="text-right">${{fmt(trade.price)}}</td>
               <td class="text-right">${{fmt(trade.notional)}}</td>
@@ -454,7 +460,7 @@
             <div class="font-black">{{cell.symbol}}</div>
             <span class="badge" :class="cell.ready?'badge-ok':'badge-warn'">{{cell.ready?'已预热':'预热中'}}</span>
           </div>
-          <div class="mt-1 subtle">{{cell.strategy}}</div>
+          <div class="mt-1 subtle">{{strategyLabel(cell.strategy)}}</div>
           <div class="mt-3 grid grid-cols-3 gap-2 text-sm">
             <div><div class="label">订单</div><div class="font-bold">{{cell.orders}}</div></div>
             <div><div class="label">成交</div><div class="font-bold">{{cell.fills}}</div></div>
@@ -469,9 +475,9 @@
         <thead><tr><th>时间</th><th>订单</th><th>策略</th><th>方向</th><th>币种</th><th>类型</th><th class="text-right">价格</th><th class="text-right">数量</th><th>状态</th></tr></thead>
         <tbody>
           <tr v-for="o in filteredOrders" :key="o.id">
-            <td>{{tsToTime(o.placed_at)}}</td><td class="subtle">{{(o.client_order_id || '').slice(-10)}}</td><td>{{o.strategy}}</td>
+            <td>{{tsToTime(o.placed_at)}}</td><td class="subtle">{{(o.client_order_id || '').slice(-10)}}</td><td>{{strategyLabel(o.strategy)}}</td>
             <td><span :class="o.side==='buy'?'badge badge-buy':'badge badge-sell'">{{o.side==='buy'?'买入':'卖出'}}</span></td>
-            <td>{{o.symbol}}</td><td>{{o.type}}</td><td class="text-right">{{o.price ? '$'+fmt(o.price) : '-'}}</td><td class="text-right">{{o.quantity}}</td>
+            <td>{{o.symbol}}</td><td>{{orderTypeLabel(o.type)}}</td><td class="text-right">{{o.price ? '$'+fmt(o.price) : '-'}}</td><td class="text-right">{{o.quantity}}</td>
             <td><span class="badge" :class="o.status==='filled'?'badge-ok':o.status==='accepted'?'badge-warn':'badge-err'">{{statusLabel(o.status)}}</span></td>
           </tr>
           <tr v-if="filteredOrders.length===0"><td colspan="9" class="subtle text-center py-8">暂无订单</td></tr>
@@ -484,7 +490,7 @@
         <thead><tr><th>时间</th><th>币种</th><th>策略</th><th>方向</th><th class="text-right">价格</th><th class="text-right">数量</th><th class="text-right">手续费</th></tr></thead>
         <tbody>
           <tr v-for="f in fills" :key="f.id">
-            <td>{{tsToTime(f.ts)}}</td><td>{{f.symbol}}</td><td>{{f.strategy}}</td>
+            <td>{{tsToTime(f.ts)}}</td><td>{{f.symbol}}</td><td>{{strategyLabel(f.strategy)}}</td>
             <td><span :class="f.side==='buy'?'badge badge-buy':'badge badge-sell'">{{f.side==='buy'?'买入':'卖出'}}</span></td>
             <td class="text-right">${{fmt(f.price)}}</td><td class="text-right">{{f.quantity}}</td><td class="text-right">${{fmt(f.fee,4)}}</td>
           </tr>
@@ -498,7 +504,7 @@
         <thead><tr><th>币种</th><th>策略</th><th>方向</th><th class="text-right">数量</th><th class="text-right">入场</th><th class="text-right">现价</th><th class="text-right">浮盈亏</th></tr></thead>
         <tbody>
           <tr v-for="p in positions" :key="p.symbol+p.side+p.strategy">
-            <td>{{p.symbol}}</td><td>{{p.strategy}}</td><td><span :class="p.side==='buy'?'badge badge-buy':'badge badge-sell'">{{p.side==='buy'?'多':'空'}}</span></td>
+            <td>{{p.symbol}}</td><td>{{strategyLabel(p.strategy)}}</td><td><span :class="p.side==='buy'?'badge badge-buy':'badge badge-sell'">{{p.side==='buy'?'多':'空'}}</span></td>
             <td class="text-right">{{p.qty}}</td><td class="text-right">${{fmt(p.entry_price)}}</td><td class="text-right">${{fmt(p.current_price)}}</td>
             <td class="text-right" :class="signClass(p.unrealized_pnl)">{{signedMoney(p.unrealized_pnl)}}</td>
           </tr>
@@ -512,8 +518,8 @@
         <thead><tr><th>时间</th><th>级别</th><th>类型</th><th>来源</th><th>原因</th></tr></thead>
         <tbody>
           <tr v-for="r in riskEvents" :key="r.id">
-            <td>{{tsToTime(r.captured_at)}}</td><td><span class="badge" :class="r.severity==='critical'?'badge-err':r.severity==='warn'?'badge-warn':'badge-ok'">{{r.severity}}</span></td>
-            <td>{{r.type}}</td><td>{{r.source}}</td><td>{{r.payload?.reason || r.payload?.raw || '-'}}</td>
+            <td>{{tsToTime(r.captured_at)}}</td><td><span class="badge" :class="r.severity==='critical'?'badge-err':r.severity==='warn'?'badge-warn':'badge-ok'">{{severityLabel(r.severity)}}</span></td>
+            <td>{{riskTypeLabel(r.type)}}</td><td>{{sourceLabel(r.source)}}</td><td>{{reasonLabel(r.payload?.reason || r.payload?.raw || '-')}}</td>
           </tr>
           <tr v-if="riskEvents.length===0"><td colspan="5" class="subtle text-center py-8">暂无风控事件</td></tr>
         </tbody>
@@ -521,7 +527,7 @@
     </div>
 
     <div v-if="activeTab==='health'" class="panel-body grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div class="metric-card"><div class="label">数据健康</div><div class="value">{{dataHealth.status}}</div></div>
+      <div class="metric-card"><div class="label">数据健康</div><div class="value">{{healthLabel(dataHealth.status)}}</div></div>
       <div class="metric-card"><div class="label">运行日志</div><div class="value">{{dataHealth.total}}</div></div>
       <div class="metric-card"><div class="label">平均延迟</div><div class="value">{{dataHealth.latency_ms.avg ?? '-'}} ms</div></div>
       <div class="metric-card"><div class="label">最大延迟</div><div class="value">{{dataHealth.latency_ms.max ?? '-'}} ms</div></div>
@@ -591,6 +597,37 @@ createApp({
     )
     const tsToTime = (ts) => ts ? new Date(ts).toLocaleTimeString('zh-CN', {hour12:false}) : '-'
     const statusLabel = (value) => ({filled:'已成交', accepted:'挂单中', canceled:'已撤销', rejected:'已拒绝', new:'新订单'}[value] || value)
+    const strategyLabel = (value) => ({
+      explore_momentum:'短周期动量突破',
+      explore_mean_reversion:'RSI/布林均值回归',
+      explore_volatility:'ATR 波动突破',
+      strict_momentum:'严格动量基准',
+      strict_mean_reversion:'严格均值基准',
+      strict_volatility:'严格波动基准',
+    }[value] || String(value || '未知策略').replaceAll('_',' '))
+    const orderTypeLabel = (value) => ({market:'市价', limit:'限价', stop:'止损', take_profit:'止盈'}[value] || value || '-')
+    const healthLabel = (value) => ({ok:'正常', degraded:'降级', fail:'异常', idle:'待启动'}[value] || value || '-')
+    const severityLabel = (value) => ({critical:'严重', warn:'警告', info:'提示', ok:'正常'}[value] || value || '-')
+    const riskTypeLabel = (value) => ({
+      order_rejected:'订单被拒',
+      paper_signal_skipped:'信号跳过',
+      circuit_breaker:'熔断保护',
+      dashboard_ws_watchdog:'行情自愈',
+    }[value] || String(value || '-').replaceAll('_',' '))
+    const sourceLabel = (value) => ({
+      dashboard_trader:'策略调度器',
+      dashboard_ws_watchdog:'行情看门狗',
+      L1:'订单风控',
+      L2:'仓位风控',
+      L3:'组合风控',
+    }[value] || value || '-')
+    const reasonLabel = (value) => ({
+      cooldown:'冷却期内跳过',
+      symbol_order_cap:'单币种订单上限',
+      min_notional:'名义金额过小',
+      gross_leverage:'杠杆暴露过高',
+      drawdown:'回撤保护触发',
+    }[value] || value || '-')
     const signClass = (value) => Number(value || 0) >= 0 ? 'pos' : 'neg'
     const signedMoney = (value) => `${Number(value || 0) >= 0 ? '+' : '-'}$${fmt(Math.abs(Number(value || 0)))}`
     const priceAgeMs = (info) => Number(info?.age_ms ?? 0)
@@ -634,7 +671,7 @@ createApp({
           fetch(API+'/api/positions').then(r=>r.json()),
           fetch(API+'/api/strategies').then(r=>r.json()),
           fetch(API+'/api/paper_metrics').then(r=>r.json()),
-          fetch(API+'/api/data_health').then(r=>r.json()),
+          fetch(API+'/api/data_health?limit=20').then(r=>r.json()),
           fetch(API+'/api/universe').then(r=>r.json()),
           fetch(API+'/api/strategy_matrix').then(r=>r.json()),
           fetch(API+'/api/recent_trades?limit=80').then(r=>r.json()),
@@ -698,17 +735,17 @@ createApp({
       priceChart = LightweightCharts.createChart(el, {
         width:el.clientWidth,
         height:el.clientHeight,
-        layout:{background:{type:'solid',color:'transparent'},textColor:'#848e9c',fontFamily:'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'},
-        grid:{vertLines:{color:'rgba(132,142,156,.14)'},horzLines:{color:'rgba(132,142,156,.12)'}},
+        layout:{background:{type:'solid',color:'transparent'},textColor:'#64748b',fontFamily:'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'},
+        grid:{vertLines:{color:'rgba(100,116,139,.16)'},horzLines:{color:'rgba(100,116,139,.12)'}},
         crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-        rightPriceScale:{borderColor:'#2b3139',scaleMargins:{top:.08,bottom:.24}},
-        timeScale:{borderColor:'#2b3139',timeVisible:true,secondsVisible:false},
+        rightPriceScale:{borderColor:'#d9e2ec',scaleMargins:{top:.08,bottom:.24}},
+        timeScale:{borderColor:'#d9e2ec',timeVisible:true,secondsVisible:false},
       })
       candleSeries = priceChart.addCandlestickSeries({
-        upColor:'#0ecb81',downColor:'#f6465d',
-        borderUpColor:'#0ecb81',borderDownColor:'#f6465d',
-        wickUpColor:'#0ecb81',wickDownColor:'#f6465d',
-        priceLineColor:'#f0b90b',
+        upColor:'#059669',downColor:'#dc2626',
+        borderUpColor:'#059669',borderDownColor:'#dc2626',
+        wickUpColor:'#059669',wickDownColor:'#dc2626',
+        priceLineColor:'#2563eb',
       })
       volumeSeries = priceChart.addHistogramSeries({
         priceFormat:{type:'volume'},
@@ -717,8 +754,8 @@ createApp({
         priceLineVisible:false,
       })
       volumeSeries.priceScale().applyOptions({scaleMargins:{top:.78,bottom:0}})
-      ma20Series = priceChart.addLineSeries({color:'#f0b90b',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
-      ma50Series = priceChart.addLineSeries({color:'#3b82f6',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
+      ma20Series = priceChart.addLineSeries({color:'#2563eb',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
+      ma50Series = priceChart.addLineSeries({color:'#7c3aed',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
       chartResizeObserver = new ResizeObserver(entries => {
         const rect = entries[0]?.contentRect
         if (rect && priceChart) priceChart.applyOptions({width:rect.width,height:rect.height})
@@ -736,7 +773,7 @@ createApp({
       const volumes = bars.map(bar => ({
         time:Math.floor(bar.ts / 1000),
         value:bar.v || 0,
-        color:bar.c >= bar.o ? 'rgba(14,203,129,.34)' : 'rgba(246,70,93,.30)',
+        color:bar.c >= bar.o ? 'rgba(5,150,105,.28)' : 'rgba(220,38,38,.24)',
       }))
       const lineData = (rows) => rows
         .map((value, index) => value == null ? null : ({time:Math.floor(bars[index].ts / 1000), value}))
@@ -791,6 +828,7 @@ createApp({
       balanceHistory,priceHistory,chartSymbol,chartTF,strategyFilter,orderStatusFilter,activeTab,toast,
       filteredOrders,isRunning,activePrice,
       fmt,tsToTime,statusLabel,signClass,signedMoney,priceAgeMs,freshnessText,priceChangeText,priceChangeClass,
+      strategyLabel,orderTypeLabel,healthLabel,severityLabel,riskTypeLabel,sourceLabel,reasonLabel,
       loadAll,loadPrices,loadOrders,loadPriceHistory,loadBalanceHistory,selectSymbol,
       startSim,stopSim,randomOrder,
     }
