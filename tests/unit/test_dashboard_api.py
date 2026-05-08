@@ -226,3 +226,17 @@ def test_dashboard_data_health_endpoint_summarizes_run_log(
     assert payload["by_status"] == {"fail": 1, "ok": 1}
     assert payload["endpoints"] == ["binance_usdm_public_ticker"]
     assert payload["recent_failures"][0]["note"] == "timeout"
+
+
+def test_dashboard_prices_include_freshness_metadata(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+    app.state.cache.update_latest_price("BTCUSDT", 50_123.45, source_ts=1_700_000_000_000)
+
+    payload = _call_route(app, "/api/prices")
+
+    assert payload["BTCUSDT"]["price"] == 50_123.45
+    assert payload["BTCUSDT"]["source_ts"] == 1_700_000_000_000
+    assert isinstance(payload["BTCUSDT"]["updated_at"], int)
+    assert isinstance(payload["BTCUSDT"]["age_ms"], int)

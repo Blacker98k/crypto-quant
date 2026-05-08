@@ -109,6 +109,23 @@ def _kline_payload(*, closed: bool = True) -> dict:
     }
 
 
+def _mini_ticker_payload() -> dict:
+    return {
+        "stream": "btcusdt@miniTicker",
+        "data": {
+            "e": "24hrMiniTicker",
+            "E": 1700000001234,
+            "s": "BTCUSDT",
+            "c": "106.25",
+            "o": "100.00",
+            "h": "109.00",
+            "l": "98.50",
+            "v": "250.5",
+            "q": "26612.5",
+        },
+    }
+
+
 async def _wait_for(predicate, timeout: float = 1.0) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
@@ -144,6 +161,20 @@ async def test_partial_kline_updates_cache_without_parquet_write() -> None:
     assert parquet.writes == []
 
 
+async def test_mini_ticker_updates_latest_price_without_mutating_bars() -> None:
+    cache = MemoryCache()
+    parquet = FakeParquetIO()
+    ws = WsSubscriber(cache, parquet)
+    ws.subscribe_tickers(["BTCUSDT"])
+
+    await ws._handle_payload(_mini_ticker_payload())
+
+    assert cache.latest_price("BTCUSDT") == 106.25
+    assert cache.latest_price_meta("BTCUSDT")["source_ts"] == 1700000001234
+    assert cache.bar_count("BTCUSDT", "1m") == 0
+    assert parquet.writes == []
+
+
 def test_stream_url_uses_spot_or_futures_endpoint() -> None:
     spot = WsSubscriber(MemoryCache(), FakeParquetIO())
     spot.subscribe_candles("BTCUSDT", "1m", lambda bar: None)
@@ -157,6 +188,17 @@ def test_stream_url_uses_spot_or_futures_endpoint() -> None:
     perp.subscribe_candles("ETHUSDT", "4h", lambda bar: None)
 
     assert perp._stream_url() == "wss://fstream.binance.com/stream?streams=ethusdt@kline_4h"
+
+
+def test_stream_url_can_include_ticker_streams() -> None:
+    ws = WsSubscriber(MemoryCache(), FakeParquetIO())
+    ws.subscribe_candles("BTCUSDT", "1m", lambda bar: None)
+    ws.subscribe_tickers(["BTCUSDT", "ETHUSDT"])
+
+    assert ws._stream_url() == (
+        "wss://stream.binance.com:9443/stream?"
+        "streams=btcusdt@kline_1m/btcusdt@miniTicker/ethusdt@miniTicker"
+    )
 
 
 async def test_reconnect_uses_rest_to_replay_missed_closed_bars() -> None:

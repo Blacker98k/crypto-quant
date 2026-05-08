@@ -73,3 +73,22 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
 
     for label in ["Data health", "Run logs", "Avg latency", "Max latency", "Cash PnL"]:
         assert label not in html
+
+
+def test_dashboard_static_page_uses_professional_candlestick_chart() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "lightweight-charts" in html
+    assert "addCandlestickSeries" in html
+    assert "addHistogramSeries" in html
+    assert "当前价" in html
+    assert "更新延迟" in html
+    assert "<canvas id=\"priceChart\"" not in html
+
+
+def test_dashboard_static_page_refreshes_prices_quickly() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "pricePollTimer" in html
+    assert "setInterval(loadPrices, 1000)" in html
+    assert "await asyncio.sleep(1)" in Path("dashboard/server.py").read_text(encoding="utf-8")

@@ -112,6 +112,7 @@ class LiveDataFeeder:
 
         for sym in _SYMBOLS:
             self._ws.subscribe_candles(sym, "1m", self._on_bar)
+        self._ws.subscribe_tickers(_SYMBOLS)
 
         await self._ws.connect(proxy=self._proxy)
         print(f"  [LiveFeed] WS 已连接，订阅: {', '.join(_SYMBOLS)} 1m")
@@ -202,6 +203,8 @@ def create_app(
     @app.get("/api/prices")
     def api_prices():
         prices = cache.latest_prices_all()
+        price_meta = cache.latest_price_meta_all()
+        now_ms = int(time.time() * 1000)
         result = {}
         for sym, price in prices.items():
             bars = cache.get_bars(sym, "1h", n=24)
@@ -212,8 +215,18 @@ def create_app(
                     change_24h = round((price - prev) / prev * 100, 2)
                 high_24h = max(b.h for b in bars)
                 low_24h = min(b.l for b in bars)
-            result[sym] = {"price": price, "change_24h": change_24h,
-                           "high_24h": high_24h, "low_24h": low_24h}
+            meta = price_meta.get(sym, {})
+            updated_at = meta.get("updated_at")
+            age_ms = max(0, now_ms - int(updated_at)) if updated_at is not None else None
+            result[sym] = {
+                "price": price,
+                "change_24h": change_24h,
+                "high_24h": high_24h,
+                "low_24h": low_24h,
+                "source_ts": meta.get("source_ts"),
+                "updated_at": updated_at,
+                "age_ms": age_ms,
+            }
         return result
 
     @app.get("/api/price_history")
@@ -358,7 +371,7 @@ def create_app(
                         for r in recent_fills
                     ],
                 })
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
         except WebSocketDisconnect:
             pass
 
