@@ -20,3 +20,10 @@ def test_dashboard_static_page_renders_data_health_panel() -> None:
     assert "/api/data_health" in html
     assert "Data health" in html
     assert "recent_failures" in html
+
+
+def test_dashboard_static_page_uses_live_running_state_for_status_badge() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "isRunning" in html
+    assert "status.ws_connected" in html

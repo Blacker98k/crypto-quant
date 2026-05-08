@@ -46,7 +46,7 @@
     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-sm">
       <div><span class="text-slate-500 text-xs">模式</span><br>
         <span class="badge-paper">模拟盘</span>
-        <span v-if="status.simulation_running" class="text-green-600 text-xs ml-1">● 运行中</span>
+        <span v-if="isRunning" class="text-green-600 text-xs ml-1">● 运行中</span>
         <span v-else class="text-red-500 text-xs ml-1">● 已停止</span>
       </div>
       <div><span class="text-slate-500 text-xs">组合价值</span><br>
@@ -210,7 +210,7 @@
   <!-- 控制按钮 -->
   <div class="card flex items-center gap-3">
     <span class="text-sm font-semibold text-slate-700">控制</span>
-    <button class="btn-primary" @click="startSim" v-if="!status.simulation_running">▶ 启动模拟</button>
+    <button class="btn-primary" @click="startSim" v-if="!isRunning">▶ 启动模拟</button>
     <button class="btn-gray" @click="stopSim" v-else>⏸ 停止模拟</button>
     <button class="btn-primary" @click="randomOrder">🎲 随机下单</button>
     <span v-if="toast" class="text-xs text-slate-500 ml-3">{{toast}}</span>
@@ -314,7 +314,7 @@ createApp({
   setup() {
     // ── 响应式状态 ──
     const status = reactive({
-      mode:'paper', simulation_running:false, portfolio_value:10000, usdt_balance:10000,
+      mode:'paper', simulation_running:false, ws_connected:false, bars_received:0, portfolio_value:10000, usdt_balance:10000,
       open_positions_n:0, open_orders_n:0, day_pnl:{n:0,pnl:0}, week_pnl:{n:0,pnl:0}, latest_prices:{}
     })
     const paperMetrics = reactive({
@@ -358,6 +358,7 @@ createApp({
       if (strategyFilter.value) o = o.filter(x => x.strategy === strategyFilter.value)
       return o
     })
+    const isRunning = computed(() => Boolean(status.simulation_running || status.ws_connected))
 
     // ── 方法 ──
     const fmt = (v, d=2) => (v!=null ? Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}) : '-')
@@ -407,8 +408,8 @@ createApp({
       drawBalanceChart()
     }
 
-    const startSim = async () => { await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start'})}); flash('模拟已启动') }
-    const stopSim = async () => { await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'stop'})}); flash('模拟已停止') }
+    const startSim = async () => { await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start'})}); await loadAll(); flash('模拟已启动') }
+    const stopSim = async () => { await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'stop'})}); await loadAll(); flash('模拟已停止') }
     const randomOrder = async () => { await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'random_order'})}); flash('已下单'); loadAll() }
 
     // ── Chart.js ──
@@ -492,7 +493,9 @@ createApp({
         Object.assign(status, {
           portfolio_value: msg.portfolio_value,
           usdt_balance: msg.usdt_balance,
-          simulation_running: msg.simulation_running,
+          simulation_running: msg.simulation_running ?? msg.ws_connected ?? false,
+          ws_connected: msg.ws_connected ?? false,
+          bars_received: msg.bars_received ?? status.bars_received,
           open_positions_n: msg.open_positions_n,
           latest_prices: msg.latest_prices || {},
         })
@@ -524,7 +527,7 @@ createApp({
     return {
       status,paperMetrics,dataHealth,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
       chartSymbol,chartTF,strategyFilter,orderStatusFilter,toast,
-      filteredOrders,
+      filteredOrders,isRunning,
       fmt,fmtVol,tsToTime,statusLabel,signClass,healthBadge,
       loadAll,loadOrders,loadPriceHistory,loadBalanceHistory,
       startSim,stopSim,randomOrder,

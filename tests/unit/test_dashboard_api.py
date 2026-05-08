@@ -20,6 +20,16 @@ class _DummyWs:
 class _DummyFeeder:
     _bar_counter = 7
     _ws = _DummyWs()
+    started = 0
+    stopped = 0
+
+    async def start(self) -> None:
+        self.started += 1
+        self._ws._running = True
+
+    async def stop(self) -> None:
+        self.stopped += 1
+        self._ws._running = False
 
 
 def _build_app(tmp_path: Path, conn: sqlite3.Connection) -> FastAPI:
@@ -103,6 +113,31 @@ def test_dashboard_status_includes_risk_event_counts(
 
     assert payload["risk_events_n"] == 2
     assert payload["critical_risk_events_n"] == 1
+
+
+def test_dashboard_status_exposes_live_feeder_running_state(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+
+    payload = _call_route(app, "/api/status")
+
+    assert payload["mode"] == "live_paper"
+    assert payload["ws_connected"] is True
+    assert payload["simulation_running"] is True
+    assert payload["bars_received"] == 7
+
+
+async def test_dashboard_control_endpoint_starts_and_stops_feeder(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+
+    stopped = await _call_route(app, "/api/control", payload={"action": "stop"})
+    started = await _call_route(app, "/api/control", payload={"action": "start"})
+
+    assert stopped["simulation_running"] is False
+    assert started["simulation_running"] is True
 
 
 def test_dashboard_paper_metrics_endpoint(tmp_path: Path, tmp_db: sqlite3.Connection) -> None:

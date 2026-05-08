@@ -182,9 +182,11 @@ def create_app(
         positions = _compute_positions(repo, cache)
         port_val = _portfolio_value(app.state.usdt_balance, positions, cache)
         risk_counts = _risk_event_counts(repo)
+        running = _feeder_running(feeder)
         return {
             "mode": "live_paper",
-            "ws_connected": feeder._ws._running if feeder._ws else False,
+            "simulation_running": running,
+            "ws_connected": running,
             "bars_received": feeder._bar_counter,
             "portfolio_value": round(port_val, 2),
             "usdt_balance": round(app.state.usdt_balance, 2),
@@ -279,6 +281,45 @@ def create_app(
     def api_data_health(limit: int = 100, since_ms: int | None = None):
         return summarize_market_health(repo, limit=limit, since_ms=since_ms)
 
+    @app.get("/api/strategies")
+    def api_strategies():
+        rows = repo._conn.execute(
+            "SELECT strategy_version, COUNT(*) AS orders_count "
+            "FROM orders GROUP BY strategy_version ORDER BY strategy_version"
+        ).fetchall()
+        fills = repo._conn.execute(
+            "SELECT o.strategy_version, COUNT(f.id) AS fills_count "
+            "FROM orders o LEFT JOIN fills f ON f.order_id = o.id "
+            "GROUP BY o.strategy_version"
+        ).fetchall()
+        fills_by_strategy = {row["strategy_version"]: row["fills_count"] for row in fills}
+        return [
+            {
+                "name": row["strategy_version"] or "unknown",
+                "orders_count": row["orders_count"],
+                "fills_count": fills_by_strategy.get(row["strategy_version"], 0),
+                "win_rate": 0.0,
+                "total_pnl": 0.0,
+                "roi": 0.0,
+            }
+            for row in rows
+        ]
+
+    @app.post("/api/control")
+    async def api_control(payload: dict[str, str]):
+        action = payload.get("action", "")
+        if action == "start":
+            await feeder.start()
+        elif action == "stop":
+            await feeder.stop()
+        elif action == "random_order":
+            pass
+        return {
+            "ok": action in {"start", "stop", "random_order"},
+            "action": action,
+            "simulation_running": _feeder_running(feeder),
+        }
+
     # ─── WebSocket ────────────────────────────────────────────────────────
 
     @app.websocket("/ws")
@@ -303,7 +344,8 @@ def create_app(
                 await ws.send_json({
                     "portfolio_value": round(port_val, 2),
                     "usdt_balance": round(app.state.usdt_balance, 2),
-                    "ws_connected": feeder._ws._running if feeder._ws else False,
+                    "simulation_running": _feeder_running(feeder),
+                    "ws_connected": _feeder_running(feeder),
                     "bars_received": feeder._bar_counter,
                     "latest_prices": prices,
                     "open_positions_n": len(positions),
@@ -371,6 +413,11 @@ def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
         "FROM risk_events"
     ).fetchone()
     return {"total": int(row["total"] or 0), "critical": int(row["critical"] or 0)}
+
+
+def _feeder_running(feeder: LiveDataFeeder) -> bool:
+    ws = getattr(feeder, "_ws", None)
+    return bool(getattr(feeder, "_running", False) or getattr(ws, "_running", False))
 
 
 def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
