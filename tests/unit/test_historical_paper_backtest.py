@@ -211,3 +211,87 @@ def test_backtest_paper_cli_runs_batch_symbols_and_timeframes(
     assert payload["cycles"] == 2
     assert [cycle["symbol"] for cycle in payload["results"]] == ["BTCUSDT", "ETHUSDT"]
     assert json.loads(summary_path.read_text(encoding="utf-8"))["totals"]["fills"] == 4
+
+
+def test_historical_readiness_cli_runs_backtest_and_validator(
+    parquet_io,
+    tmp_path: Path,
+) -> None:
+    parquet_io.write_bars(_bars(symbol="BTCUSDT", timeframe="1h"))
+    parquet_io.write_bars(_bars(symbol="ETHUSDT", timeframe="1h"))
+    db_path = tmp_path / "historical-readiness.sqlite"
+    report_path = tmp_path / "historical-readiness.jsonl"
+    summary_path = tmp_path / "historical-readiness-summary.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/historical_readiness.py",
+            "--symbols",
+            "BTCUSDT,ETHUSDT",
+            "--timeframes",
+            "1h",
+            "--data-root",
+            str(parquet_io._root),
+            "--db",
+            str(db_path),
+            "--report",
+            str(report_path),
+            "--summary",
+            str(summary_path),
+            "--min-bars-per-cycle",
+            "3",
+        ],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["backtest"]["cycles"] == 2
+    assert payload["validation"]["symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert payload["validation"]["timeframes"] == ["1h"]
+    assert len(report_path.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_historical_readiness_cli_resets_owned_artifacts_before_run(
+    parquet_io,
+    tmp_path: Path,
+) -> None:
+    parquet_io.write_bars(_bars(symbol="BTCUSDT", timeframe="1h"))
+    db_path = tmp_path / "historical-readiness.sqlite"
+    report_path = tmp_path / "historical-readiness.jsonl"
+    summary_path = tmp_path / "historical-readiness-summary.json"
+    report_path.write_text('{"stale": true}\n', encoding="utf-8")
+    summary_path.write_text('{"stale": true}\n', encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/historical_readiness.py",
+            "--symbols",
+            "BTCUSDT",
+            "--timeframes",
+            "1h",
+            "--data-root",
+            str(parquet_io._root),
+            "--db",
+            str(db_path),
+            "--report",
+            str(report_path),
+            "--summary",
+            str(summary_path),
+            "--min-bars-per-cycle",
+            "3",
+        ],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    payload = json.loads(result.stdout)
+    report_rows = [json.loads(line) for line in report_path.read_text(encoding="utf-8").splitlines()]
+    assert payload["status"] == "ok"
+    assert report_rows == payload["backtest"]["results"]
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["cycles"] == 1

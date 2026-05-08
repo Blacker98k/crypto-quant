@@ -15,10 +15,13 @@ Run the paper execution path against real historical OHLCV that was backfilled i
 - Add a CLI wrapper for repeated local runs over backfilled data.
 - Add a batch wrapper that expands symbol/timeframe combinations, runs each pair through the same single-backtest path, and writes one JSONL stream plus one aggregated summary.
 - Reject windows shorter than a configurable minimum bar count before order simulation, so smoke reports clearly distinguish missing/insufficient data from strategy or execution failures.
+- Add a readiness CLI that chains batch historical paper replay and strict report validation in one repeatable command.
 
 ## Safety
 
 The backtest reads local parquet files and writes local SQLite/report artifacts. It does not call private APIs, place orders, or enable live execution.
+
+The readiness CLI only deletes the exact output files passed through `--db`, `--report`, and `--summary`. This keeps repeated runs deterministic without removing data directories or historical parquet inputs.
 
 ## Batch State
 
