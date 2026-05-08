@@ -35,6 +35,12 @@ def _parse_args() -> argparse.Namespace:
         help="Exit non-zero when failed cycle count exceeds this threshold.",
     )
     parser.add_argument(
+        "--min-bars-per-cycle",
+        type=int,
+        default=None,
+        help="Exit non-zero when any cycle has fewer result.bars than this threshold.",
+    )
+    parser.add_argument(
         "--require-price-source",
         action="append",
         default=[],
@@ -102,6 +108,19 @@ def main() -> None:
         )
         failed = True
 
+    if args.min_bars_per_cycle is not None:
+        for row in _read_report_rows(args.report):
+            result = row.get("result")
+            bars = result.get("bars") if isinstance(result, dict) else None
+            if not isinstance(bars, int | float) or bars < args.min_bars_per_cycle:
+                cycle = row.get("cycle", "?")
+                actual = bars if bars is not None else "missing"
+                print(
+                    f"cycle {cycle} bars {actual} below required {args.min_bars_per_cycle}",
+                    file=sys.stderr,
+                )
+                failed = True
+
     price_sources = {str(source) for source in summary.get("price_sources", [])}
     symbols = {str(symbol) for symbol in summary.get("symbols", [])}
     timeframes = {str(timeframe) for timeframe in summary.get("timeframes", [])}
@@ -154,6 +173,14 @@ def main() -> None:
 
     if failed:
         raise SystemExit(1)
+
+
+def _read_report_rows(path: Path) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 if __name__ == "__main__":

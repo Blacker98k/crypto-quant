@@ -209,3 +209,46 @@ def test_summarize_simulation_report_cli_enforces_timeframe_gate(
     assert result.returncode == 1
     assert summary["timeframes"] == ["1h"]
     assert "missing required timeframe: 4h" in result.stderr
+
+
+def test_summarize_simulation_report_cli_enforces_min_bars_per_cycle(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "historical.jsonl"
+    _write_report(
+        report_path,
+        [
+            {
+                "cycle": 1,
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {"bars": 24, "orders": 2},
+            },
+            {
+                "cycle": 2,
+                "symbol": "ETHUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {"bars": 12, "orders": 2},
+            },
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/summarize_simulation_report.py",
+            str(report_path),
+            "--min-bars-per-cycle",
+            "24",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 1
+    assert "cycle 2 bars 12 below required 24" in result.stderr
