@@ -59,18 +59,8 @@ def _start_of_day_ts() -> int:
 
 
 def _pnl_in_window(repo: SqliteRepo, since_ms: int) -> dict:
-    fills = repo._conn.execute(
-        "SELECT f.fee, f.quantity, f.price, o.side FROM fills f "
-        "JOIN orders o ON f.order_id = o.id WHERE f.ts >= ?", (since_ms,)
-    ).fetchall()
-    pnl = 0.0
-    for f in fills:
-        val = f["price"] * f["quantity"]
-        if f["side"] == "buy":
-            pnl -= val + f["fee"]
-        else:
-            pnl += val - f["fee"]
-    return {"n": len(fills), "pnl": round(pnl, 2), "roi": 0.0}
+    metrics = paper_metrics(repo._conn, since_ms=since_ms, until_ms=int(time.time() * 1000))
+    return {"n": metrics["fills"]["total"], "pnl": round(metrics["fills"]["cash_pnl"], 2), "roi": 0.0}
 
 
 # ─── 实时行情理货器 ────────────────────────────────────────────────────────────

@@ -51,14 +51,69 @@ def _fill_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dic
         elif row["side"] == "sell":
             sell_notional += notional
     filled_notional = buy_notional + sell_notional
+    net_cash_flow = sell_notional - buy_notional - fees
+    realized_pnl = _realized_pnl_from_fills(conn, since_ms, until_ms)
     return {
         "total": len(rows),
         "filled_notional": _round_money(filled_notional),
         "buy_notional": _round_money(buy_notional),
         "sell_notional": _round_money(sell_notional),
         "fees": _round_money(fees),
-        "cash_pnl": _round_money(sell_notional - buy_notional - fees),
+        "net_cash_flow": _round_money(net_cash_flow),
+        "cash_pnl": _round_money(realized_pnl - fees),
+        "realized_pnl": _round_money(realized_pnl - fees),
     }
+
+
+def _realized_pnl_from_fills(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> float:
+    rows = conn.execute(
+        "SELECT f.id, f.price, f.quantity, f.ts, o.side, o.strategy_version, s.symbol "
+        "FROM fills f JOIN orders o ON f.order_id = o.id "
+        "LEFT JOIN symbols s ON o.symbol_id = s.id "
+        "WHERE f.ts < ? ORDER BY f.ts, f.id",
+        (until_ms,),
+    ).fetchall()
+    positions: dict[tuple[str, str], dict[str, float | str | None]] = {}
+    realized = 0.0
+    for row in rows:
+        qty = float(row["quantity"])
+        price = float(row["price"])
+        trade_side = "long" if row["side"] == "buy" else "short"
+        key = (str(row["symbol"] or "?"), str(row["strategy_version"] or ""))
+        current = positions.setdefault(key, {"side": None, "qty": 0.0, "avg": 0.0})
+        current_side = current["side"]
+        current_qty = float(current["qty"] or 0.0)
+        current_avg = float(current["avg"] or 0.0)
+
+        if current_side is None or current_qty <= 0:
+            current.update({"side": trade_side, "qty": qty, "avg": price})
+            continue
+        if current_side == trade_side:
+            new_qty = current_qty + qty
+            current.update(
+                {
+                    "qty": new_qty,
+                    "avg": ((current_qty * current_avg) + (qty * price)) / new_qty,
+                }
+            )
+            continue
+
+        closing_qty = min(current_qty, qty)
+        if since_ms <= int(row["ts"]) < until_ms:
+            if current_side == "long":
+                realized += (price - current_avg) * closing_qty
+            else:
+                realized += (current_avg - price) * closing_qty
+
+        remaining_position_qty = current_qty - closing_qty
+        excess_trade_qty = qty - closing_qty
+        if remaining_position_qty > 1e-12:
+            current.update({"qty": remaining_position_qty})
+        elif excess_trade_qty > 1e-12:
+            current.update({"side": trade_side, "qty": excess_trade_qty, "avg": price})
+        else:
+            current.update({"side": None, "qty": 0.0, "avg": 0.0})
+    return realized
 
 
 def _risk_event_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dict[str, Any]:

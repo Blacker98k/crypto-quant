@@ -366,7 +366,8 @@ def test_dashboard_paper_metrics_endpoint(tmp_path: Path, tmp_db: sqlite3.Connec
     )
 
     assert payload["orders"] == {"total": 1, "by_status": {"filled": 1}}
-    assert payload["fills"]["cash_pnl"] == -5_002.5
+    assert payload["fills"]["net_cash_flow"] == -5_002.5
+    assert payload["fills"]["cash_pnl"] == -2.5
     assert payload["risk_events"] == {"total": 1, "by_severity": {"warn": 1}}
     assert payload["symbols"] == ["BTCUSDT"]
 

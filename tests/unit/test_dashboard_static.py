@@ -62,7 +62,7 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
         "行情覆盖",
         "订单总数",
         "成交笔数",
-        "现金盈亏",
+        "已实现盈亏",
         "数据健康",
         "运行日志",
         "平均延迟",
@@ -112,3 +112,17 @@ def test_dashboard_static_page_uses_modern_visual_system() -> None:
     assert "border-radius:10px" in html
     assert "background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%)" in html
     assert "width:max-content" in html
+
+
+def test_dashboard_static_page_aligns_market_panel_with_chart() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert ".side-stack > .panel:first-child" in html
+    assert "height:665px" in html
+    assert ".side-stack > .panel:first-child .panel-body" in html
+    assert "overflow:auto" in html
+    assert "scrollbar-width:thin" in html
+    assert "market-list" in html
+    assert ".market-tile .value" in html
+    assert "font-size:15px" in html
+    assert ".market-change" in html

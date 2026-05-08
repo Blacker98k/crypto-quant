@@ -60,7 +60,9 @@ def test_paper_metrics_aggregates_window(tmp_db: sqlite3.Connection) -> None:
             "buy_notional": 5_000.0,
             "sell_notional": 3_000.0,
             "fees": 4.0,
-            "cash_pnl": -2_004.0,
+            "net_cash_flow": -2_004.0,
+            "cash_pnl": -4.0,
+            "realized_pnl": -4.0,
         },
         "risk_events": {"total": 2, "by_severity": {"critical": 1, "warn": 1}},
         "positions": {"open": 1, "open_notional": 5_100.0},
@@ -95,7 +97,8 @@ def test_paper_metrics_cli_outputs_json(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
 
     assert payload["orders"] == {"total": 3, "by_status": {"filled": 2, "rejected": 1}}
-    assert payload["fills"]["cash_pnl"] == -2_004.0
+    assert payload["fills"]["net_cash_flow"] == -2_004.0
+    assert payload["fills"]["cash_pnl"] == -4.0
     assert payload["symbols"] == ["BTCUSDT", "ETHUSDT"]
 
 
