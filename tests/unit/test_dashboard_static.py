@@ -57,7 +57,7 @@ def test_dashboard_static_page_avoids_emoji_action_icons() -> None:
 def test_dashboard_static_page_uses_light_quant_workspace_theme() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
-    assert "--bg:#f4f7fb" in html
+    assert "--bg:#f6f8fb" in html
     assert "--panel:#ffffff" in html
     assert "--accent:#2563eb" in html
     assert "--bg:#181a20" not in html
@@ -130,7 +130,9 @@ def test_dashboard_static_page_uses_modern_visual_system() -> None:
 
     assert "border-radius:6px" in html
     assert "background:var(--panel)" in html
-    assert "grid-template-columns:310px minmax(0,1fr) 360px" in html
+    assert "grid-template-columns:280px minmax(0,1fr) 330px" in html
+    assert "grid-auto-columns:minmax(150px,1fr)" in html
+    assert ".chart-card { order:1; }" in html
 
 
 def test_dashboard_static_page_uses_full_light_trading_layout() -> None:

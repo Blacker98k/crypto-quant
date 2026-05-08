@@ -8,15 +8,17 @@
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
-    --bg:#f4f7fb;
+    --bg:#f6f8fb;
     --panel:#ffffff;
-    --panel-2:#f8fafc;
-    --panel-3:#eef2f7;
-    --line:#d9e2ec;
-    --muted:#64748b;
-    --text:#111827;
+    --panel-2:#f9fbfe;
+    --panel-3:#eef4fb;
+    --line:#e3eaf3;
+    --muted:#667085;
+    --text:#0f172a;
     --accent:#2563eb;
-    --accent-soft:rgba(37,99,235,.10);
+    --accent-soft:rgba(37,99,235,.09);
+    --accent-2:#14b8a6;
+    --shadow:0 10px 28px rgba(15,23,42,.055);
     --green:#059669;
     --red:#dc2626;
     --blue:#2563eb;
@@ -64,36 +66,36 @@
   @media (min-width:768px) {
     .md\:grid-cols-4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
   }
-  .terminal-shell { width:100%; min-height:100vh; padding:12px; background:var(--bg); }
+  .terminal-shell { width:100%; min-height:100vh; padding:10px; background:var(--bg); }
   .panel {
     background:var(--panel);
     border:1px solid var(--line);
-    border-radius:6px;
+    border-radius:8px;
     overflow:hidden;
-    box-shadow:0 10px 30px rgba(15,23,42,.06);
+    box-shadow:var(--shadow);
   }
   .panel-head {
-    min-height:38px;
-    padding:9px 12px;
+    min-height:36px;
+    padding:8px 12px;
     display:flex;
     align-items:center;
     justify-content:space-between;
     gap:10px;
     border-bottom:1px solid var(--line);
-    background:var(--panel-2);
+    background:rgba(249,251,254,.92);
   }
   .panel-body { padding:12px; }
   .command-center {
-    min-height:58px;
-    padding:10px 12px;
+    min-height:56px;
+    padding:10px 14px;
     display:grid;
     grid-template-columns:minmax(260px,1fr) auto;
     align-items:center;
     gap:12px;
-    background:linear-gradient(180deg,#ffffff,#f8fafc);
+    background:rgba(255,255,255,.94);
     border:1px solid var(--line);
-    border-radius:6px;
-    box-shadow:0 12px 32px rgba(15,23,42,.08);
+    border-radius:8px;
+    box-shadow:var(--shadow);
   }
   .brand-lockup { display:flex; align-items:center; gap:10px; min-width:0; }
   .brand-mark {
@@ -101,8 +103,8 @@
     height:34px;
     display:grid;
     place-items:center;
-    border-radius:4px;
-    background:var(--accent);
+    border-radius:8px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
     color:#fff;
     font-weight:900;
     letter-spacing:0;
@@ -111,25 +113,38 @@
     display:grid;
     grid-auto-flow:column;
     grid-auto-columns:minmax(168px,1fr);
-    gap:8px;
+    gap:7px;
     overflow:auto;
-    padding-bottom:1px;
+    padding:0 1px 2px;
+    scrollbar-width:none;
   }
+  .ticker-strip::-webkit-scrollbar,
+  .metric-grid::-webkit-scrollbar { display:none; }
+  .table-wrap::-webkit-scrollbar,
+  .market-list::-webkit-scrollbar,
+  .order-flow::-webkit-scrollbar { height:6px; width:6px; }
+  .table-wrap::-webkit-scrollbar-track,
+  .market-list::-webkit-scrollbar-track,
+  .order-flow::-webkit-scrollbar-track { background:transparent; }
+  .table-wrap::-webkit-scrollbar-thumb,
+  .market-list::-webkit-scrollbar-thumb,
+  .order-flow::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
   .ticker-tile {
-    min-height:58px;
-    padding:9px 10px;
+    min-height:54px;
+    padding:8px 10px;
     border:1px solid var(--line);
-    border-radius:6px;
+    border-radius:8px;
     background:var(--panel);
     cursor:pointer;
-    transition:border-color .16s ease,background-color .16s ease;
+    box-shadow:0 1px 2px rgba(15,23,42,.035);
+    transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease;
   }
   .ticker-tile:hover,
-  .ticker-tile.active { border-color:var(--accent); background:#eef6ff; }
+  .ticker-tile.active { border-color:#b9d3ff; background:#f2f7ff; box-shadow:0 6px 18px rgba(37,99,235,.09); }
   .exchange-grid {
     display:grid;
-    grid-template-columns:310px minmax(0,1fr) 360px;
-    gap:10px;
+    grid-template-columns:280px minmax(0,1fr) 330px;
+    gap:8px;
     align-items:start;
   }
   .market-list { max-height:calc(100vh - 172px); overflow:auto; }
@@ -138,17 +153,17 @@
     grid-template-columns:minmax(80px,1fr) minmax(82px,auto) 64px;
     gap:8px;
     align-items:center;
-    min-height:42px;
-    padding:8px 10px;
-    border-bottom:1px solid rgba(217,226,236,.85);
+    min-height:40px;
+    padding:7px 10px;
+    border-bottom:1px solid rgba(227,234,243,.9);
     cursor:pointer;
   }
   .market-row:hover,
   .market-row.active { background:var(--accent-soft); }
   .chart-card .panel-body { padding:0; }
   .chart-toolbar {
-    min-height:70px;
-    padding:12px;
+    min-height:64px;
+    padding:10px 12px;
     display:grid;
     grid-template-columns:minmax(0,1fr) auto;
     gap:10px;
@@ -157,44 +172,41 @@
   }
   .chart-shell {
     position:relative;
-    height:590px;
+    height:560px;
     min-height:420px;
     background:
       repeating-linear-gradient(90deg,transparent 0,transparent 95px,rgba(100,116,139,.10) 96px),
       repeating-linear-gradient(0deg,transparent 0,transparent 63px,rgba(100,116,139,.08) 64px),
-      #f8fafc;
+      #fbfdff;
   }
   .market-chart { position:absolute; inset:0; }
   .order-flow { max-height:calc(100vh - 172px); overflow:auto; }
   .metric-grid {
     display:grid;
-    grid-template-columns:repeat(6,minmax(0,1fr));
-    gap:8px;
+    grid-template-columns:repeat(7,minmax(132px,1fr));
+    gap:7px;
   }
   .metric-card {
-    min-height:74px;
-    padding:10px;
+    min-height:66px;
+    padding:10px 11px;
     border:1px solid var(--line);
-    border-radius:6px;
-    background:var(--panel);
+    border-radius:8px;
+    background:linear-gradient(180deg,#fff,#fbfdff);
+    box-shadow:0 1px 2px rgba(15,23,42,.035);
   }
   .metric-card::before {
-    content:"";
-    display:block;
-    height:2px;
-    margin:-10px -10px 8px;
-    background:linear-gradient(90deg,var(--accent),transparent);
+    content:none;
   }
   .label { color:var(--muted); font-size:11px; line-height:1.2; letter-spacing:0; }
-  .value { margin-top:5px; color:var(--text); font-size:18px; line-height:1.1; font-weight:800; }
-  .price-xl { font-size:32px; line-height:1; font-weight:850; letter-spacing:0; }
+  .value { margin-top:5px; color:var(--text); font-size:18px; line-height:1.08; font-weight:850; }
+  .price-xl { font-size:30px; line-height:1; font-weight:850; letter-spacing:0; }
   .subtle { color:var(--muted); font-size:12px; }
   .pos { color:var(--green); font-weight:750 }
   .neg { color:var(--red); font-weight:750 }
   .btn {
     min-height:34px;
     padding:7px 11px;
-    border-radius:4px;
+    border-radius:6px;
     border:1px solid var(--line);
     background:var(--panel-2);
     color:var(--text);
@@ -211,7 +223,7 @@
     align-items:center;
     min-height:22px;
     padding:2px 7px;
-    border-radius:4px;
+    border-radius:6px;
     border:1px solid var(--line);
     background:var(--panel-2);
     color:var(--text);
@@ -244,7 +256,7 @@
     flex-wrap:wrap;
     gap:0;
     border-bottom:1px solid var(--line);
-    background:var(--panel-2);
+    background:#fff;
   }
   .tab-btn {
     min-height:38px;
@@ -282,23 +294,36 @@
     min-height:92px;
     padding:10px;
     border:1px solid var(--line);
-    border-radius:6px;
-    background:var(--panel-2);
+    border-radius:8px;
+    background:#fbfdff;
   }
   @media (max-width:1280px) {
-    .exchange-grid { grid-template-columns:260px minmax(0,1fr); }
+    .exchange-grid { grid-template-columns:250px minmax(0,1fr); }
     .order-flow { grid-column:1 / -1; max-height:none; }
-    .metric-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .metric-grid { grid-template-columns:repeat(4,minmax(132px,1fr)); }
   }
   @media (max-width:760px) {
     .terminal-shell { padding:8px; }
     .command-center,
-    .chart-toolbar,
+    .chart-toolbar { grid-template-columns:1fr; }
+    .command-center { gap:8px; }
     .exchange-grid { grid-template-columns:1fr; }
+    .chart-card { order:1; }
+    .market-list { order:2; }
+    .order-flow { order:3; }
     .market-list,
     .order-flow { max-height:none; }
-    .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .metric-grid {
+      grid-auto-flow:column;
+      grid-auto-columns:minmax(150px,1fr);
+      grid-template-columns:none;
+      overflow:auto;
+      padding-bottom:2px;
+      scrollbar-width:none;
+    }
+    .metric-card { min-height:64px; }
     .chart-shell { height:430px; }
+    .brand-lockup { align-items:flex-start; flex-wrap:wrap; }
   }
 </style>
 </head>
