@@ -130,7 +130,9 @@ def test_dashboard_static_page_uses_modern_visual_system() -> None:
 
     assert "border-radius:6px" in html
     assert "background:var(--panel)" in html
-    assert "grid-template-columns:280px minmax(0,1fr) 330px" in html
+    assert 'grid-template-areas:' in html
+    assert '"chart flow"' in html
+    assert '"chart markets"' in html
     assert "grid-auto-columns:minmax(150px,1fr)" in html
     assert ".chart-card { order:1; }" in html
 

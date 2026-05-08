@@ -66,7 +66,16 @@
   @media (min-width:768px) {
     .md\:grid-cols-4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
   }
-  .terminal-shell { width:100%; min-height:100vh; padding:10px; background:var(--bg); }
+  .terminal-shell {
+    width:100%;
+    min-height:100vh;
+    padding:10px;
+    background:var(--bg);
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .terminal-shell > * + * { margin-top:0 !important; }
   .panel {
     background:var(--panel);
     border:1px solid var(--line);
@@ -86,11 +95,13 @@
   }
   .panel-body { padding:12px; }
   .command-center {
-    min-height:56px;
-    padding:10px 14px;
-    display:grid;
-    grid-template-columns:minmax(260px,1fr) auto;
+    order:1;
+    min-height:52px;
+    padding:8px 12px;
+    display:flex;
+    flex-wrap:wrap;
     align-items:center;
+    justify-content:space-between;
     gap:12px;
     background:rgba(255,255,255,.94);
     border:1px solid var(--line);
@@ -110,6 +121,7 @@
     letter-spacing:0;
   }
   .ticker-strip {
+    order:3;
     display:grid;
     grid-auto-flow:column;
     grid-auto-columns:minmax(168px,1fr);
@@ -142,12 +154,16 @@
   .ticker-tile:hover,
   .ticker-tile.active { border-color:#b9d3ff; background:#f2f7ff; box-shadow:0 6px 18px rgba(37,99,235,.09); }
   .exchange-grid {
+    order:2;
     display:grid;
-    grid-template-columns:280px minmax(0,1fr) 330px;
+    grid-template-columns:minmax(0,1fr) 330px;
+    grid-template-areas:
+      "chart flow"
+      "chart markets";
     gap:8px;
     align-items:start;
   }
-  .market-list { max-height:calc(100vh - 172px); overflow:auto; }
+  .market-list { grid-area:markets; max-height:292px; overflow:auto; }
   .market-row {
     display:grid;
     grid-template-columns:minmax(80px,1fr) minmax(82px,auto) 64px;
@@ -160,6 +176,7 @@
   }
   .market-row:hover,
   .market-row.active { background:var(--accent-soft); }
+  .chart-card { grid-area:chart; }
   .chart-card .panel-body { padding:0; }
   .chart-toolbar {
     min-height:64px;
@@ -172,7 +189,7 @@
   }
   .chart-shell {
     position:relative;
-    height:560px;
+    height:620px;
     min-height:420px;
     background:
       repeating-linear-gradient(90deg,transparent 0,transparent 95px,rgba(100,116,139,.10) 96px),
@@ -180,8 +197,9 @@
       #fbfdff;
   }
   .market-chart { position:absolute; inset:0; }
-  .order-flow { max-height:calc(100vh - 172px); overflow:auto; }
+  .order-flow { grid-area:flow; max-height:320px; overflow:auto; }
   .metric-grid {
+    order:4;
     display:grid;
     grid-template-columns:repeat(7,minmax(132px,1fr));
     gap:7px;
@@ -297,20 +315,32 @@
     border-radius:8px;
     background:#fbfdff;
   }
+  #app > section.panel { order:5; }
   @media (max-width:1280px) {
-    .exchange-grid { grid-template-columns:250px minmax(0,1fr); }
-    .order-flow { grid-column:1 / -1; max-height:none; }
+    .exchange-grid {
+      grid-template-columns:minmax(0,1fr) 300px;
+      grid-template-areas:
+        "chart flow"
+        "chart markets";
+    }
+    .order-flow { max-height:300px; }
+    .market-list { max-height:276px; }
     .metric-grid { grid-template-columns:repeat(4,minmax(132px,1fr)); }
   }
   @media (max-width:760px) {
     .terminal-shell { padding:8px; }
-    .command-center,
+    .command-center { align-items:flex-start; gap:8px; }
     .chart-toolbar { grid-template-columns:1fr; }
-    .command-center { gap:8px; }
-    .exchange-grid { grid-template-columns:1fr; }
+    .exchange-grid {
+      grid-template-columns:1fr;
+      grid-template-areas:
+        "chart"
+        "flow"
+        "markets";
+    }
     .chart-card { order:1; }
-    .market-list { order:2; }
-    .order-flow { order:3; }
+    .order-flow { order:2; }
+    .market-list { order:3; }
     .market-list,
     .order-flow { max-height:none; }
     .metric-grid {
@@ -322,8 +352,10 @@
       scrollbar-width:none;
     }
     .metric-card { min-height:64px; }
-    .chart-shell { height:430px; }
+    .chart-shell { height:520px; }
     .brand-lockup { align-items:flex-start; flex-wrap:wrap; }
+    .brand-lockup .text-\[11px\] { display:none; }
+    .toolbar-group { width:100%; justify-content:flex-start; }
   }
 </style>
 </head>
