@@ -287,6 +287,7 @@ class DashboardPaperTrader:
         notional_usdt: float = 20.0,
         cooldown_ms: int = 120_000,
         max_orders_per_symbol: int = 120,
+        order_cap_window_ms: int = 60 * 60 * 1000,
     ) -> None:
         self._repo = repo
         self._cache = cache
@@ -296,6 +297,7 @@ class DashboardPaperTrader:
         self._notional_usdt = max(notional_usdt, 5.0)
         self._cooldown_ms = max(cooldown_ms, 0)
         self._max_orders_per_symbol = max(max_orders_per_symbol, 1)
+        self._order_cap_window_ms = max(order_cap_window_ms, 60_000)
         self._last_trade_ms: dict[tuple[str, str], int] = {}
         self._evaluations: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -365,6 +367,8 @@ class DashboardPaperTrader:
                         "bars": int(evaluation.get("bars") or 0),
                         "last_signal": evaluation.get("last_signal"),
                         "last_eval_at": evaluation.get("last_eval_at"),
+                        "throttled": bool(evaluation.get("throttled")),
+                        "throttle_reason": evaluation.get("throttle_reason"),
                         "orders": int(row["orders"] if row is not None else 0),
                         "fills": int(row["fills"] if row is not None else 0),
                         "notional": round(float(row["notional"] if row is not None else 0), 2),
@@ -393,8 +397,19 @@ class DashboardPaperTrader:
         if price is None or price <= 0:
             self._record_risk("missing_price", "warn", strategy_name, signal, now_ms)
             return None
-        if self._orders_for_symbol(signal.symbol) >= self._max_orders_per_symbol:
-            self._record_risk("symbol_order_cap", "warn", strategy_name, signal, now_ms)
+        if self._orders_for_symbol(signal.symbol, since_ms=now_ms - self._order_cap_window_ms) >= self._max_orders_per_symbol:
+            evaluation = self._evaluations.setdefault(
+                key,
+                {
+                    "symbol": signal.symbol,
+                    "strategy_id": strategy_name,
+                    "ready": True,
+                    "bars": 0,
+                },
+            )
+            evaluation["throttled"] = True
+            evaluation["throttle_reason"] = "symbol_order_cap"
+            evaluation["order_cap_window_ms"] = self._order_cap_window_ms
             return None
         quantity = self._round_qty(signal.symbol, self._notional_usdt / price)
         if quantity * price < 5.0:
@@ -485,11 +500,11 @@ class DashboardPaperTrader:
             }
         )
 
-    def _orders_for_symbol(self, symbol: str) -> int:
+    def _orders_for_symbol(self, symbol: str, *, since_ms: int) -> int:
         row = self._repo._conn.execute(
             "SELECT COUNT(o.id) AS n FROM orders o "
-            "JOIN symbols s ON s.id = o.symbol_id WHERE s.symbol = ?",
-            (symbol,),
+            "JOIN symbols s ON s.id = o.symbol_id WHERE s.symbol = ? AND o.placed_at >= ?",
+            (symbol, since_ms),
         ).fetchone()
         return int(row["n"] or 0)
 

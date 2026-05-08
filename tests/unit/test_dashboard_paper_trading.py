@@ -210,6 +210,71 @@ def test_dashboard_paper_trader_does_not_record_cooldown_as_risk_event(
     assert risk_count["n"] == 0
 
 
+def test_dashboard_paper_trader_order_cap_uses_rolling_window(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+        max_orders_per_symbol=1,
+        order_cap_window_ms=60_000,
+    )
+    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_120_000, 100, 103, 99, 102, 12, closed=True)
+
+    first_handles = trader.on_bar(first, now_ms=first.ts)
+    second_handles = trader.on_bar(second, now_ms=second.ts)
+
+    order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
+    risk_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM risk_events").fetchone()
+    assert [handle.status for handle in first_handles] == ["filled"]
+    assert [handle.status for handle in second_handles] == ["filled"]
+    assert order_count["n"] == 2
+    assert risk_count["n"] == 0
+
+
+def test_dashboard_paper_trader_order_cap_throttles_without_risk_event(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+        max_orders_per_symbol=1,
+        order_cap_window_ms=60_000,
+    )
+    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_030_000, 100, 103, 99, 102, 12, closed=True)
+
+    first_handles = trader.on_bar(first, now_ms=first.ts)
+    second_handles = trader.on_bar(second, now_ms=second.ts)
+    matrix = trader.strategy_matrix()
+
+    order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
+    risk_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM risk_events").fetchone()
+    assert [handle.status for handle in first_handles] == ["filled"]
+    assert second_handles == []
+    assert order_count["n"] == 1
+    assert risk_count["n"] == 0
+    assert matrix["cells"][0]["throttled"] is True
+    assert matrix["cells"][0]["throttle_reason"] == "symbol_order_cap"
+
+
 def test_dashboard_trading_endpoints_expose_universe_matrix_and_recent_trades(
     tmp_path: Path,
     tmp_db: sqlite3.Connection,

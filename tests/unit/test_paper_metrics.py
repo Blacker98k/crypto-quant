@@ -34,6 +34,13 @@ def _seed_metrics_fixture(conn: sqlite3.Connection) -> None:
         type_="paper_signal_skipped",
         payload='{"reason": "cooldown", "symbol": "BTCUSDT"}',
     )
+    _insert_risk_event(
+        conn,
+        "warn",
+        _SINCE_MS + 9,
+        type_="paper_signal_skipped",
+        payload='{"reason":"symbol_order_cap","symbol":"BTCUSDT"}',
+    )
     _insert_risk_event(conn, "info", _UNTIL_MS + 1)
     conn.commit()
 

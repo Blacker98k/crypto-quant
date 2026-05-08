@@ -66,7 +66,9 @@ def _risk_event_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) 
         "SELECT severity, COUNT(*) AS n FROM risk_events "
         "WHERE captured_at >= ? AND captured_at < ? "
         "AND NOT (type = 'paper_signal_skipped' "
-        "AND (payload LIKE '%\"reason\": \"cooldown\"%' OR payload LIKE '%\"reason\":\"cooldown\"%')) "
+        "AND (payload LIKE '%\"reason\": \"cooldown\"%' OR payload LIKE '%\"reason\":\"cooldown\"%' "
+        "OR payload LIKE '%\"reason\": \"symbol_order_cap\"%' "
+        "OR payload LIKE '%\"reason\":\"symbol_order_cap\"%')) "
         "GROUP BY severity ORDER BY severity",
         (since_ms, until_ms),
     ).fetchall()

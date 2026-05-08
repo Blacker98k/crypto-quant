@@ -702,7 +702,9 @@ def _recent_actionable_risk_events(
 def _actionable_risk_sql() -> str:
     return (
         "NOT (type = 'paper_signal_skipped' "
-        "AND (payload LIKE '%\"reason\": \"cooldown\"%' OR payload LIKE '%\"reason\":\"cooldown\"%'))"
+        "AND (payload LIKE '%\"reason\": \"cooldown\"%' OR payload LIKE '%\"reason\":\"cooldown\"%' "
+        "OR payload LIKE '%\"reason\": \"symbol_order_cap\"%' "
+        "OR payload LIKE '%\"reason\":\"symbol_order_cap\"%'))"
     )
 
 
