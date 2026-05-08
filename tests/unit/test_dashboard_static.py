@@ -128,12 +128,12 @@ def test_dashboard_static_page_uses_modern_visual_system() -> None:
     ]:
         assert token in html
 
-    assert "border-radius:6px" in html
+    assert "border-radius:8px" in html
     assert "background:var(--panel)" in html
     assert 'grid-template-areas:' in html
     assert '"chart flow"' in html
     assert '"chart markets"' in html
-    assert "grid-auto-columns:minmax(150px,1fr)" in html
+    assert "grid-auto-columns:minmax(152px,1fr)" in html
     assert ".chart-card { order:1; }" in html
 
 
