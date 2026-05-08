@@ -231,9 +231,11 @@ def create_app(
 
     @app.get("/api/price_history")
     def api_price_history(symbol: str = "BTCUSDT", tf: str = "1m", n: int = 200):
-        bars = cache.get_bars(symbol, tf, n=n)
-        if not bars:
-            bars = parquet_io.read_bars(symbol, tf, n=n)
+        cached = cache.get_bars(symbol, tf, n=n)
+        historical = parquet_io.read_bars(symbol, tf, n=n) if len(cached) < n else []
+        bars_by_ts = {bar.ts: bar for bar in historical}
+        bars_by_ts.update({bar.ts: bar for bar in cached})
+        bars = [bars_by_ts[ts] for ts in sorted(bars_by_ts)][-n:]
         return [{"ts": b.ts, "o": b.o, "h": b.h, "l": b.l, "c": b.c, "v": b.v}
                 for b in bars]
 

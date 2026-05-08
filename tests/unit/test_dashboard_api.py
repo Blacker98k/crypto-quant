@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from core.data.exchange.base import Bar
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
@@ -240,3 +241,45 @@ def test_dashboard_prices_include_freshness_metadata(
     assert payload["BTCUSDT"]["source_ts"] == 1_700_000_000_000
     assert isinstance(payload["BTCUSDT"]["updated_at"], int)
     assert isinstance(payload["BTCUSDT"]["age_ms"], int)
+
+
+def test_dashboard_price_history_backfills_parquet_when_cache_is_short(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+    base_ts = 1_700_000_000_000
+    historical = [
+        Bar(
+            symbol="BTCUSDT",
+            timeframe="1m",
+            ts=base_ts + index * 60_000,
+            o=100 + index,
+            h=101 + index,
+            l=99 + index,
+            c=100.5 + index,
+            v=10 + index,
+        )
+        for index in range(10)
+    ]
+    app.state.parquet_io.write_bars(historical)
+    for index in range(8, 12):
+        app.state.cache.push_bar(
+            Bar(
+                symbol="BTCUSDT",
+                timeframe="1m",
+                ts=base_ts + index * 60_000,
+                o=200 + index,
+                h=201 + index,
+                l=199 + index,
+                c=200.5 + index,
+                v=20 + index,
+                closed=index < 11,
+            )
+        )
+
+    payload = _call_route(app, "/api/price_history", symbol="BTCUSDT", tf="1m", n=10)
+
+    assert len(payload) == 10
+    assert [row["ts"] for row in payload] == [base_ts + index * 60_000 for index in range(2, 12)]
+    assert payload[-1]["c"] == 211.5
+    assert payload[-4]["c"] == 208.5
