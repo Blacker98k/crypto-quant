@@ -136,6 +136,7 @@ class LiveDataFeeder:
         self._engine = engine
         self._trader = trader
         self._proxy = proxy
+        self._preferred_proxy = proxy
         self._symbols = list(symbols or _SYMBOLS)
         self._ws: WsSubscriber | None = None
         self._exchange: BinanceSpotAdapter | None = None
@@ -193,37 +194,54 @@ class LiveDataFeeder:
         return self._ws
 
     async def _connect_ws(self) -> None:
-        ws = self._build_ws()
-        try:
-            await ws.connect(proxy=self._proxy)
-        except Exception as exc:
-            if not self._proxy:
-                raise
-            await ws.close()
-            self._proxy = ""
+        last_error: Exception | None = None
+        for proxy in self._proxy_candidates():
             ws = self._build_ws()
-            await ws.connect(proxy="")
-            self._repo.log_run(
-                "dashboard_ws_proxy_fallback",
-                "ok",
-                note=f"proxy failed ({exc}); direct WS connected"[:200],
-            )
-        print(f"  [LiveFeed] WS connected, subscribed {len(self._symbols)} symbols")
+            try:
+                await ws.connect(proxy=proxy)
+            except Exception as exc:
+                last_error = exc
+                await ws.close()
+                continue
+            if proxy != self._proxy:
+                self._repo.log_run(
+                    "dashboard_ws_proxy_fallback",
+                    "ok",
+                    note=f"connected with fallback proxy={proxy or 'direct'}"[:200],
+                )
+            self._proxy = proxy
+            print(f"  [LiveFeed] WS connected, subscribed {len(self._symbols)} symbols")
+            return
+        if last_error:
+            raise last_error
+        raise RuntimeError("no WS proxy candidate available")
 
     async def _call_binance_with_proxy_fallback(self, endpoint: str, call):
-        try:
-            return await call(self._proxy)
-        except Exception as exc:
-            if not self._proxy:
-                raise
-            self._proxy = ""
-            result = await call("")
-            self._repo.log_run(
-                "binance_proxy_fallback",
-                "ok",
-                note=f"{endpoint}: proxy failed ({exc}); direct retry ok"[:200],
-            )
+        last_error: Exception | None = None
+        for proxy in self._proxy_candidates():
+            try:
+                result = await call(proxy)
+            except Exception as exc:
+                last_error = exc
+                continue
+            if proxy != self._proxy:
+                self._proxy = proxy
+                self._repo.log_run(
+                    "binance_proxy_fallback",
+                    "ok",
+                    note=f"{endpoint}: recovered with proxy={proxy or 'direct'}"[:200],
+                )
             return result
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"{endpoint}: no proxy candidate available")
+
+    def _proxy_candidates(self) -> list[str]:
+        candidates: list[str] = []
+        for proxy in (self._proxy, self._preferred_proxy, ""):
+            if proxy not in candidates:
+                candidates.append(proxy)
+        return candidates
 
     async def _restart_ws(self, reason: str) -> None:
         self._repo.log_run("dashboard_ws_watchdog", "fail", note=reason[:200])
