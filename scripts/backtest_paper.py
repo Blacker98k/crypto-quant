@@ -25,6 +25,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--start-ms", type=int, default=None)
     parser.add_argument("--end-ms", type=int, default=None)
     parser.add_argument("--n", type=int, default=None)
+    parser.add_argument("--min-bars", type=int, default=2)
     parser.add_argument("--report", type=Path, default=None)
     parser.add_argument("--summary", type=Path, default=None)
     return parser.parse_args()
@@ -75,6 +76,7 @@ def main() -> None:
                     start_ms=args.start_ms,
                     end_ms=args.end_ms,
                     n=args.n,
+                    min_bars=args.min_bars,
                     report_path=args.report,
                     summary_path=args.summary,
                 ),
@@ -89,6 +91,7 @@ def main() -> None:
                     start_ms=args.start_ms,
                     end_ms=args.end_ms,
                     n=args.n,
+                    min_bars=args.min_bars,
                     report_path=args.report,
                     summary_path=args.summary,
                 ),

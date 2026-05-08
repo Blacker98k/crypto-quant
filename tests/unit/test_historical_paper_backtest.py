@@ -58,6 +58,24 @@ def test_historical_paper_backtest_fails_without_bars(sqlite_repo, parquet_io) -
     assert payload["result"]["bars"] == 0
 
 
+def test_historical_paper_backtest_fails_when_window_is_too_short(
+    sqlite_repo,
+    parquet_io,
+) -> None:
+    parquet_io.write_bars(_bars())
+
+    payload = run_historical_paper_backtest(
+        sqlite_repo,
+        parquet_io,
+        HistoricalPaperBacktestConfig(symbol="BTCUSDT", timeframe="1h", min_bars=4),
+    )
+
+    assert payload["passed"] is False
+    assert payload["reason"] == "insufficient_bars"
+    assert payload["result"]["bars"] == 3
+    assert payload["result"]["orders"] == 0
+
+
 def test_historical_paper_backtest_writes_report_and_summary(
     sqlite_repo,
     parquet_io,

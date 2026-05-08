@@ -22,6 +22,7 @@ class HistoricalPaperBacktestConfig:
     start_ms: int | None = None
     end_ms: int | None = None
     n: int | None = None
+    min_bars: int = 2
     report_path: Path | None = None
     summary_path: Path | None = None
 
@@ -33,6 +34,7 @@ class HistoricalPaperBatchBacktestConfig:
     start_ms: int | None = None
     end_ms: int | None = None
     n: int | None = None
+    min_bars: int = 2
     report_path: Path | None = None
     summary_path: Path | None = None
 
@@ -90,6 +92,15 @@ def run_historical_paper_backtest(
         payload = _payload(config, SimulationResult(), passed=False, reason="no_bars")
         _write_outputs(payload, config)
         return payload
+    if len(bars) < config.min_bars:
+        payload = _payload(
+            config,
+            SimulationResult(bars=len(bars)),
+            passed=False,
+            reason="insufficient_bars",
+        )
+        _write_outputs(payload, config)
+        return payload
 
     _seed_symbol(repo, config.symbol)
     strategy = HistoricalPulseStrategy(config.symbol, config.timeframe, close_at_ms=bars[-1].ts)
@@ -117,6 +128,7 @@ def run_historical_paper_backtest_batch(
                     start_ms=config.start_ms,
                     end_ms=config.end_ms,
                     n=config.n,
+                    min_bars=config.min_bars,
                 ),
             )
             payload["cycle"] = len(results) + 1

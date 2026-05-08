@@ -14,6 +14,7 @@ Run the paper execution path against real historical OHLCV that was backfilled i
 - Start with a deterministic pulse strategy so this validates the historical data -> strategy -> risk -> paper matching path without adding live trading or complex strategy-specific assumptions.
 - Add a CLI wrapper for repeated local runs over backfilled data.
 - Add a batch wrapper that expands symbol/timeframe combinations, runs each pair through the same single-backtest path, and writes one JSONL stream plus one aggregated summary.
+- Reject windows shorter than a configurable minimum bar count before order simulation, so smoke reports clearly distinguish missing/insufficient data from strategy or execution failures.
 
 ## Safety
 
