@@ -295,3 +295,49 @@ def test_summarize_simulation_report_cli_enforces_max_open_positions_per_cycle(
 
     assert result.returncode == 1
     assert "cycle 2 open_positions 1 above allowed 0" in result.stderr
+
+
+def test_summarize_simulation_report_cli_enforces_rejection_and_risk_event_caps(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "historical.jsonl"
+    _write_report(
+        report_path,
+        [
+            {
+                "cycle": 1,
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {"bars": 24, "rejected": 0, "risk_events": 0},
+            },
+            {
+                "cycle": 2,
+                "symbol": "ETHUSDT",
+                "timeframe": "1h",
+                "price_source": "historical_parquet",
+                "passed": True,
+                "result": {"bars": 24, "rejected": 1, "risk_events": 2},
+            },
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/summarize_simulation_report.py",
+            str(report_path),
+            "--max-rejected-per-cycle",
+            "0",
+            "--max-risk-events-per-cycle",
+            "0",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 1
+    assert "cycle 2 rejected 1 above allowed 0" in result.stderr
+    assert "cycle 2 risk_events 2 above allowed 0" in result.stderr

@@ -47,6 +47,18 @@ def _parse_args() -> argparse.Namespace:
         help="Exit non-zero when any cycle has more result.open_positions than this threshold.",
     )
     parser.add_argument(
+        "--max-rejected-per-cycle",
+        type=int,
+        default=None,
+        help="Exit non-zero when any cycle has more result.rejected than this threshold.",
+    )
+    parser.add_argument(
+        "--max-risk-events-per-cycle",
+        type=int,
+        default=None,
+        help="Exit non-zero when any cycle has more result.risk_events than this threshold.",
+    )
+    parser.add_argument(
         "--require-price-source",
         action="append",
         default=[],
@@ -114,35 +126,26 @@ def main() -> None:
         )
         failed = True
 
-    if args.min_bars_per_cycle is not None or args.max_open_positions_per_cycle is not None:
+    per_cycle_gates = [
+        ("bars", args.min_bars_per_cycle, "min"),
+        ("open_positions", args.max_open_positions_per_cycle, "max"),
+        ("rejected", args.max_rejected_per_cycle, "max"),
+        ("risk_events", args.max_risk_events_per_cycle, "max"),
+    ]
+    if any(threshold is not None for _, threshold, _ in per_cycle_gates):
         for row in _read_report_rows(args.report):
             result = row.get("result")
             cycle = row.get("cycle", "?")
-            if args.min_bars_per_cycle is not None:
-                bars = result.get("bars") if isinstance(result, dict) else None
-                if not isinstance(bars, int | float) or bars < args.min_bars_per_cycle:
-                    actual = bars if bars is not None else "missing"
-                    print(
-                        f"cycle {cycle} bars {actual} below required {args.min_bars_per_cycle}",
-                        file=sys.stderr,
-                    )
-                    failed = True
-            if args.max_open_positions_per_cycle is not None:
-                open_positions = (
-                    result.get("open_positions") if isinstance(result, dict) else None
-                )
-                if (
-                    not isinstance(open_positions, int | float)
-                    or open_positions > args.max_open_positions_per_cycle
-                ):
-                    actual = open_positions if open_positions is not None else "missing"
-                    print(
-                        "cycle "
-                        f"{cycle} open_positions {actual} above allowed "
-                        f"{args.max_open_positions_per_cycle}",
-                        file=sys.stderr,
-                    )
-                    failed = True
+            for metric, threshold, direction in per_cycle_gates:
+                if threshold is None:
+                    continue
+                failed = _check_cycle_metric(
+                    result=result,
+                    cycle=cycle,
+                    metric=metric,
+                    threshold=threshold,
+                    direction=direction,
+                ) or failed
 
     price_sources = {str(source) for source in summary.get("price_sources", [])}
     symbols = {str(symbol) for symbol in summary.get("symbols", [])}
@@ -204,6 +207,30 @@ def _read_report_rows(path: Path) -> list[dict[str, object]]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def _check_cycle_metric(
+    *,
+    result: object,
+    cycle: object,
+    metric: str,
+    threshold: int,
+    direction: str,
+) -> bool:
+    value = result.get(metric) if isinstance(result, dict) else None
+    if direction == "min":
+        failed = not isinstance(value, int | float) or value < threshold
+        relation = "below required"
+    else:
+        failed = not isinstance(value, int | float) or value > threshold
+        relation = "above allowed"
+    if failed:
+        actual = value if value is not None else "missing"
+        print(
+            f"cycle {cycle} {metric} {actual} {relation} {threshold}",
+            file=sys.stderr,
+        )
+    return failed
 
 
 if __name__ == "__main__":
