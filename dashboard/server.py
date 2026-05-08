@@ -143,10 +143,12 @@ class LiveDataFeeder:
         self._bar_counter = 0
         self._last_bar_ms = 0
         self._bar_stale_after_ms = 90_000
+        self._rest_bar_seen_ts: dict[tuple[str, str], int] = {}
         self._running = False
         self._task: asyncio.Task | None = None
         self._price_task: asyncio.Task | None = None
         self._watchdog_task: asyncio.Task | None = None
+        self._rest_bar_task: asyncio.Task | None = None
         self._ticker_24h: dict[str, dict[str, float]] = {}
 
     async def _lazy_load_exchange(self) -> None:
@@ -181,6 +183,7 @@ class LiveDataFeeder:
         self._task = asyncio.create_task(self._engine_loop())
         self._price_task = asyncio.create_task(self._rest_price_loop())
         self._watchdog_task = asyncio.create_task(self._bar_watchdog_loop())
+        self._rest_bar_task = asyncio.create_task(self._rest_bar_fallback_loop())
 
     def _build_ws(self) -> WsSubscriber:
         self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
@@ -276,6 +279,20 @@ class LiveDataFeeder:
                 pass
             await asyncio.sleep(2)
 
+    async def _rest_bar_fallback_loop(self) -> None:
+        """Backfill recent 1m bars and run strategies if WS bars stop arriving."""
+        while self._running:
+            await asyncio.sleep(30)
+            if not self._running:
+                return
+            age_ms = _feeder_last_bar_age_ms(self)
+            if age_ms is not None and age_ms <= 45_000:
+                continue
+            try:
+                await self._backfill_recent_1m(self._symbols, publish=True)
+            except Exception as exc:
+                self._repo.log_run("dashboard_rest_bar_fallback", "fail", note=str(exc)[:200])
+
     async def _refresh_rest_prices(self) -> None:
         import aiohttp
 
@@ -338,7 +355,7 @@ class LiveDataFeeder:
             self._trader.replace_symbols(symbols)
         await self._backfill_recent_1m(symbols)
 
-    async def _backfill_recent_1m(self, symbols: list[str]) -> None:
+    async def _backfill_recent_1m(self, symbols: list[str], *, publish: bool = False) -> None:
         for symbol in symbols:
             try:
                 bars = await self._call_binance_with_proxy_fallback(
@@ -354,6 +371,19 @@ class LiveDataFeeder:
                 self._cache.push_bar(bar)
             if bars:
                 self._parquet_io.write_bars(bars)
+                closed_bars = [bar for bar in bars if bar.closed]
+                if not closed_bars:
+                    continue
+                latest_ts = max(bar.ts for bar in closed_bars)
+                key = (symbol, "1m")
+                if publish:
+                    last_seen = self._rest_bar_seen_ts.get(key, 0)
+                    for bar in sorted(closed_bars, key=lambda item: item.ts):
+                        if bar.ts > last_seen:
+                            self._on_bar(bar)
+                    self._rest_bar_seen_ts[key] = max(latest_ts, last_seen)
+                else:
+                    self._rest_bar_seen_ts[key] = max(latest_ts, self._rest_bar_seen_ts.get(key, 0))
                 self._repo.log_run(f"binance_1m_warmup_{symbol}", "ok")
 
     async def stop(self) -> None:
@@ -365,6 +395,8 @@ class LiveDataFeeder:
             self._price_task.cancel()
         if self._watchdog_task:
             self._watchdog_task.cancel()
+        if self._rest_bar_task:
+            self._rest_bar_task.cancel()
         if self._ws:
             await self._ws.close()
         if self._exchange:

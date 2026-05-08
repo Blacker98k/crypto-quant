@@ -357,6 +357,57 @@ async def test_live_feeder_falls_back_to_direct_rest_when_proxy_fails(
     assert feeder._symbols == ["BTCUSDT"]
 
 
+async def test_live_feeder_rest_bar_fallback_publishes_new_closed_bars_once(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: Any
+) -> None:
+    bars = [
+        Bar(
+            symbol="BTCUSDT",
+            timeframe="1m",
+            ts=1_700_000_000_000,
+            o=50_000.0,
+            h=50_010.0,
+            l=49_990.0,
+            c=50_005.0,
+            v=1.0,
+            q=50_005.0,
+            closed=True,
+        ),
+        Bar(
+            symbol="BTCUSDT",
+            timeframe="1m",
+            ts=1_700_000_060_000,
+            o=50_005.0,
+            h=50_020.0,
+            l=49_995.0,
+            c=50_015.0,
+            v=1.0,
+            q=50_015.0,
+            closed=True,
+        ),
+    ]
+
+    async def _fetch_klines(
+        symbol: str, timeframe: str, *, proxy: str = "", limit: int = 20
+    ) -> list[Bar]:
+        return bars
+
+    monkeypatch.setattr(dashboard_server, "fetch_binance_recent_klines", _fetch_klines)
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, symbols=["BTCUSDT"])
+    published: list[Bar] = []
+    feeder._on_bar = published.append  # type: ignore[method-assign]
+
+    await feeder._backfill_recent_1m(["BTCUSDT"], publish=True)
+    await feeder._backfill_recent_1m(["BTCUSDT"], publish=True)
+
+    assert [bar.ts for bar in published] == [bar.ts for bar in bars]
+    assert cache.latest_price("BTCUSDT") == 50_015.0
+
+
 def test_dashboard_paper_metrics_endpoint(tmp_path: Path, tmp_db: sqlite3.Connection) -> None:
     repo = SqliteRepo(tmp_db)
     repo.upsert_symbols(
