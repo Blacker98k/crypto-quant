@@ -26,6 +26,7 @@ class PaperReadinessConfig:
     cycles: int = 3
     interval_sec: float = 1.0
     require_kline: bool = True
+    reset_artifacts: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +108,10 @@ def run_paper_readiness(
     step_results: list[dict[str, object]] = []
     failed_step: str | None = None
 
+    if config.reset_artifacts:
+        _remove_if_exists(config.report_path)
+        _remove_if_exists(config.summary_path)
+
     for step in build_readiness_steps(config):
         returncode, stdout, stderr = run_command(step.command)
         step_result = {
@@ -161,6 +166,11 @@ def _format_float(value: float) -> str:
 
 def _path_arg(path: Path) -> str:
     return path.as_posix()
+
+
+def _remove_if_exists(path: Path) -> None:
+    if path.exists():
+        path.unlink()
 
 
 __all__ = [

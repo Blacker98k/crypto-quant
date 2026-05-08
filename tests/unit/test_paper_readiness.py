@@ -75,6 +75,26 @@ def test_run_paper_readiness_stops_after_failed_step() -> None:
     }
 
 
+def test_run_paper_readiness_resets_stale_report_artifacts(tmp_path: Path) -> None:
+    report_path = tmp_path / "stale.jsonl"
+    summary_path = tmp_path / "stale-summary.json"
+    report_path.write_text('{"price_source":"static_fallback:TimeoutError"}\n', encoding="utf-8")
+    summary_path.write_text('{"cycles":99}\n', encoding="utf-8")
+
+    def runner(command: list[str]):
+        assert not report_path.exists()
+        assert not summary_path.exists()
+        return 2, '{"status":"fail"}\n', ""
+
+    result = run_paper_readiness(
+        PaperReadinessConfig(report_path=report_path, summary_path=summary_path),
+        runner=runner,
+    )
+
+    assert result["status"] == "fail"
+    assert result["failed_step"] == "market_health"
+
+
 def test_run_paper_readiness_returns_ok_with_step_json() -> None:
     outputs = [
         '{"status":"ok","endpoint":"binance_usdm_public_ticker"}\n',
