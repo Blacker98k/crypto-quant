@@ -151,6 +151,7 @@ class CoreStrategyAdapter:
         account_equity: Callable[[], float] | float = 10_000.0,
         symbols: list[str] | None = None,
         follow_symbols: bool = False,
+        trigger_timeframes: list[str] | None = None,
     ) -> None:
         self._strategy = strategy
         self._feed = feed
@@ -159,6 +160,7 @@ class CoreStrategyAdapter:
         self._base_requirement = strategy.required_data()
         self._follow_symbols = follow_symbols
         self._requirement = self._requirement_with_symbols(symbols)
+        self._trigger_timeframes = set(trigger_timeframes or self._requirement.timeframes)
         self.name = strategy.name
         self.min_bars = max(1, min(self._requirement.history_lookback_bars, 120))
 
@@ -173,7 +175,7 @@ class CoreStrategyAdapter:
     def supports(self, symbol: str, timeframe: str) -> bool:
         if self._requirement.symbols and symbol not in self._requirement.symbols:
             return False
-        return not self._requirement.timeframes or timeframe in self._requirement.timeframes
+        return not self._trigger_timeframes or timeframe in self._trigger_timeframes
 
     def evaluate(self, symbol: str, bars: list[Bar]) -> Signal | None:
         if not bars:
@@ -244,6 +246,7 @@ class DashboardRiskPipeline:
         reference_symbol: str,
         reference_price: float,
         intent: OrderIntent,
+        open_positions: list[dict[str, Any]] | None = None,
         repo: SqliteRepo,
     ) -> DashboardRiskResult:
         signal_decision = self._signal_validator.validate(
@@ -260,7 +263,7 @@ class DashboardRiskPipeline:
         portfolio_decision = self._portfolio_risk.validate(
             intent,
             reference_price=reference_price,
-            open_positions=repo.list_open_positions(),
+            open_positions=open_positions if open_positions is not None else repo.list_open_positions(),
             symbol_id=symbol_id,
         )
         if not portfolio_decision.accepted:
@@ -479,6 +482,10 @@ class DashboardPaperTrader:
     def strategies(self) -> list[str]:
         return [strategy.name for strategy in self._strategies]
 
+    @property
+    def active_strategy_names(self) -> list[str]:
+        return self.strategies
+
     def replace_symbols(self, symbols: list[str]) -> None:
         self._symbols = list(dict.fromkeys(symbols))
         for strategy in self._strategies:
@@ -633,6 +640,7 @@ class DashboardPaperTrader:
             reference_symbol=signal.symbol,
             reference_price=price,
             intent=intent,
+            open_positions=self._open_positions_for_active_strategies(),
             repo=self._repo,
         )
         if not risk.accepted or risk.intent is None:
@@ -730,16 +738,22 @@ class DashboardPaperTrader:
         return int(row["n"] or 0)
 
     def _portfolio_open_notional(self) -> float:
-        rows = self._repo._conn.execute(
-            "SELECT s.symbol, p.qty, p.current_price, p.avg_entry_price "
-            "FROM positions p JOIN symbols s ON s.id = p.symbol_id "
-            "WHERE p.closed_at IS NULL"
-        ).fetchall()
+        active = self._open_positions_for_active_strategies()
         total = 0.0
-        for row in rows:
-            price = self._cache.latest_price(str(row["symbol"])) or row["current_price"] or row["avg_entry_price"]
+        for row in active:
+            symbol_row = self._repo.get_symbol_by_id(int(row["symbol_id"]))
+            symbol = str(symbol_row["symbol"]) if symbol_row is not None else ""
+            price = self._cache.latest_price(symbol) or row["current_price"] or row["avg_entry_price"]
             total += abs(float(row["qty"] or 0.0) * float(price or 0.0))
         return total
+
+    def _open_positions_for_active_strategies(self) -> list[dict[str, Any]]:
+        active = set(self.active_strategy_names)
+        return [
+            row
+            for row in self._repo.list_open_positions()
+            if str(row.get("strategy_version") or "") in active
+        ]
 
     def _signal_adds_exposure(self, strategy_name: str, signal: Signal) -> bool:
         symbol_row = self._repo.get_symbol(signal.symbol)
@@ -785,7 +799,13 @@ def default_dashboard_strategies(
     account_equity: Callable[[], float] | float = 10_000.0,
 ) -> list[CoreStrategyAdapter]:
     return [
-        CoreStrategyAdapter(S1BtcEthTrend(), feed=feed, repo=repo, account_equity=account_equity),
+        CoreStrategyAdapter(
+            S1BtcEthTrend(),
+            feed=feed,
+            repo=repo,
+            account_equity=account_equity,
+            trigger_timeframes=["4h"],
+        ),
         CoreStrategyAdapter(
             S2AltcoinReversal(),
             feed=feed,
@@ -793,6 +813,7 @@ def default_dashboard_strategies(
             account_equity=account_equity,
             symbols=DEFAULT_TOP30_USDT,
             follow_symbols=True,
+            trigger_timeframes=["1h"],
         ),
     ]
 

@@ -353,6 +353,66 @@ def test_dashboard_status_exposes_data_source_identity(
     assert payload["fills_count"] == 1
 
 
+def test_dashboard_status_filters_legacy_strategy_counts_for_active_runtime(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "type": "perp",
+                "base": "BTC",
+                "quote": "USDT",
+                "tick_size": 0.1,
+                "lot_size": 0.001,
+                "min_notional": 10.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    for strategy in ["explore_momentum", "S1_btc_eth_trend"]:
+        order_id = repo.insert_order(
+            {
+                "client_order_id": f"source-{strategy}",
+                "symbol_id": symbol["id"],
+                "side": "buy",
+                "type": "market",
+                "price": 10.0,
+                "stop_price": None,
+                "quantity": 1.0,
+                "filled_qty": 1.0,
+                "avg_fill_price": 10.0,
+                "status": "filled",
+                "purpose": "entry",
+                "strategy_version": strategy,
+                "placed_at": 1_700_000_000_000,
+                "updated_at": 1_700_000_000_100,
+            }
+        )
+        repo.insert_fill(
+            {
+                "order_id": order_id,
+                "exchange_fill_id": f"fill-{strategy}",
+                "price": 10.0,
+                "quantity": 1.0,
+                "fee": 0.01,
+                "fee_currency": "USDT",
+                "ts": 1_700_000_000_050,
+            }
+        )
+    app = _build_app(tmp_path, tmp_db)
+    app.state.active_strategy_ids = ["S1_btc_eth_trend"]
+
+    payload = _call_route(app, "/api/status")
+
+    assert payload["orders_count"] == 1
+    assert payload["fills_count"] == 1
+
+
 def test_dashboard_pnl_windows_use_shanghai_calendar_boundaries() -> None:
     shanghai = timezone(timedelta(hours=8))
     now_s = datetime(2026, 5, 9, 19, 30, tzinfo=shanghai).timestamp()

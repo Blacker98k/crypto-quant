@@ -67,6 +67,14 @@ class _SignalOnFourHourStrategy(_SignalOnEveryBarStrategy):
         return DataRequirement(symbols=["BTCUSDT"], timeframes=["4h"], history_lookback_bars=2)
 
 
+class _SignalWithDailyDependencyStrategy(_SignalOnEveryBarStrategy):
+    name = "S_core_trigger_test"
+    __slots__ = ()
+
+    def required_data(self) -> DataRequirement:
+        return DataRequirement(symbols=["BTCUSDT"], timeframes=["4h", "1d"], history_lookback_bars=2)
+
+
 def _seed_symbol(repo: SqliteRepo, symbol: str) -> None:
     _seed_symbol_with_limits(repo, symbol=symbol)
 
@@ -307,6 +315,54 @@ def test_dashboard_paper_trader_rejects_orders_through_l1_risk(
     assert "min_notional" in risk_row["payload"]
 
 
+def test_dashboard_paper_trader_ignores_legacy_positions_for_active_risk_scope(
+    tmp_path: Path,
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    symbol = sqlite_repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    sqlite_repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "explore_momentum",
+            "strategy_version": "explore_momentum",
+            "opening_signal_id": None,
+            "side": "long",
+            "qty": 10.0,
+            "avg_entry_price": 100.0,
+            "current_price": 100.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": None,
+            "opened_at": 1_700_000_000_000,
+            "closed_at": None,
+        }
+    )
+    cache = MemoryCache(max_bars=20)
+    feed = LiveFeed(ParquetIO(data_root=tmp_path / "parquet"), sqlite_repo, cache)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[CoreStrategyAdapter(_SignalOnEveryBarStrategy(), feed=feed, repo=sqlite_repo)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+        max_open_notional_usdt=25.0,
+    )
+    bar = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 101, 99, 100, 10, closed=True)
+
+    handles = trader.on_bar(bar, now_ms=bar.ts)
+
+    assert [handle.status for handle in handles] == ["filled"]
+
+
 def test_dashboard_paper_trader_runs_core_strategy_adapter(
     tmp_path: Path,
     sqlite_repo: SqliteRepo,
@@ -417,6 +473,40 @@ def test_dashboard_paper_trader_ignores_unsupported_core_timeframes(
     assert handles == []
     assert matrix["cells"][0]["last_eval_at"] is None
     assert matrix["cells"][0]["bars"] == 0
+
+
+def test_core_strategy_adapter_separates_data_dependencies_from_trigger_timeframes(
+    tmp_path: Path,
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    feed = LiveFeed(ParquetIO(data_root=tmp_path / "parquet"), sqlite_repo, cache)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[
+            CoreStrategyAdapter(
+                _SignalWithDailyDependencyStrategy(),
+                feed=feed,
+                repo=sqlite_repo,
+                trigger_timeframes=["4h"],
+            )
+        ],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    daily = Bar("BTCUSDT", "1d", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    four_hour = Bar("BTCUSDT", "4h", 1_700_014_400_000, 100, 101, 99, 100, 10, closed=True)
+
+    daily_handles = trader.on_bar(daily, now_ms=daily.ts)
+    four_hour_handles = trader.on_bar(four_hour, now_ms=four_hour.ts)
+
+    assert daily_handles == []
+    assert [handle.status for handle in four_hour_handles] == ["filled"]
 
 
 def test_dashboard_paper_trader_does_not_record_cooldown_as_risk_event(

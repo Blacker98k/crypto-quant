@@ -565,7 +565,7 @@ def create_app(
         running = _feeder_running(feeder)
         last_bar_age_ms = _feeder_last_bar_age_ms(feeder)
         market_data_stale = _feeder_market_data_stale(feeder)
-        data_source = _data_source_identity(repo)
+        data_source = _data_source_identity(repo, strategies=active_strategies)
         return {
             "mode": "live_paper",
             **data_source,
@@ -1107,7 +1107,7 @@ def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
     }
 
 
-def _data_source_identity(repo: SqliteRepo) -> dict[str, object]:
+def _data_source_identity(repo: SqliteRepo, *, strategies: list[str] | None = None) -> dict[str, object]:
     db_rows = repo._conn.execute("PRAGMA database_list").fetchall()
     db_path = ":memory:"
     for row in db_rows:
@@ -1115,17 +1115,34 @@ def _data_source_identity(repo: SqliteRepo) -> dict[str, object]:
             db_path = str(Path(row["file"]).resolve())
             break
 
+    strategy_clause = ""
+    params: list[object] = []
+    if strategies:
+        placeholders = ",".join("?" for _ in strategies)
+        strategy_clause = f" WHERE strategy_version IN ({placeholders})"
+        params.extend(strategies)
     counts = repo._conn.execute(
         "SELECT "
-        "(SELECT COUNT(*) FROM fills) AS fills_count, "
-        "(SELECT COUNT(*) FROM orders) AS orders_count"
+        "(SELECT COUNT(*) FROM fills f JOIN orders o ON o.id = f.order_id"
+        f"{strategy_clause.replace('strategy_version', 'o.strategy_version')}) AS fills_count, "
+        f"(SELECT COUNT(*) FROM orders{strategy_clause}) AS orders_count",
+        (*params, *params),
     ).fetchone()
+    started_where = ""
+    started_params: list[object] = []
+    if strategies:
+        placeholders = ",".join("?" for _ in strategies)
+        started_where = f" AND strategy_version IN ({placeholders})"
+        started_params.extend(strategies)
     started = repo._conn.execute(
         "SELECT MIN(ts) AS started_at FROM ("
-        "SELECT MIN(placed_at) AS ts FROM orders WHERE placed_at IS NOT NULL "
+        f"SELECT MIN(placed_at) AS ts FROM orders WHERE placed_at IS NOT NULL{started_where} "
         "UNION ALL "
-        "SELECT MIN(ts) AS ts FROM fills WHERE ts IS NOT NULL"
+        "SELECT MIN(f.ts) AS ts FROM fills f JOIN orders o ON o.id = f.order_id "
+        f"WHERE f.ts IS NOT NULL{started_where.replace('strategy_version', 'o.strategy_version')}"
         ") WHERE ts IS NOT NULL"
+        ,
+        (*started_params, *started_params),
     ).fetchone()
     return {
         "workspace_path": str(_PROJECT_ROOT),
