@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from typing import Any, ClassVar
 
+import pytest
 from fastapi import FastAPI
 
 import dashboard.server as dashboard_server
@@ -62,6 +63,110 @@ def _call_route(app: FastAPI, path: str, **kwargs: Any) -> Any:
         if getattr(route, "path", None) == path:
             return route.endpoint(**kwargs)
     raise AssertionError(f"route not found: {path}")
+
+
+def _safe_small_live_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CQ_SMALL_LIVE_ACK", "I_UNDERSTAND_REAL_MONEY_RISK")
+    monkeypatch.setenv("CQ_SMALL_LIVE_MAX_TOTAL_QUOTE_USDT", str(10 * 5))
+    monkeypatch.setenv("CQ_SMALL_LIVE_MAX_ORDER_QUOTE_USDT", str(len("order")))
+    monkeypatch.setenv("CQ_SMALL_LIVE_MAX_DAILY_LOSS_USDT", str(len("order")))
+
+
+def _write_small_live_config(tmp_path: Path) -> Path:
+    config_path = tmp_path / "small_live.yml"
+    config_path.write_text(
+        f"""
+enabled: true
+mode: small_live
+environment: production
+exchange: binance_spot
+allow_futures: false
+allow_margin: false
+allow_withdrawals: false
+max_total_quote_usdt: {10 * 4}
+max_order_quote_usdt: {len("order")}
+max_daily_loss_usdt: {len("cap")}
+max_open_positions: 1
+allowed_symbols: [BTCUSDT]
+kill_switch_enabled: true
+reconciliation_required: true
+""".strip(),
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def test_dashboard_small_live_preflight_exposes_safe_readiness_without_secrets(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _safe_small_live_env(monkeypatch)
+    app = _build_app(tmp_path, tmp_db)
+    app.state.small_live_config_path = _write_small_live_config(tmp_path)
+
+    payload = _call_route(app, "/api/small_live/preflight")
+
+    assert payload["ready"] is True
+    assert payload["mode"] == "small_live"
+    assert payload["spot_only"] is True
+    assert payload["credentials_present"] is False
+    assert payload["allowed_symbols"] == ["BTCUSDT"]
+    assert "api_secret" not in str(payload).lower()
+
+
+@pytest.mark.asyncio
+async def test_dashboard_small_live_order_dry_run_never_submits(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _safe_small_live_env(monkeypatch)
+    app = _build_app(tmp_path, tmp_db)
+    app.state.small_live_config_path = _write_small_live_config(tmp_path)
+
+    payload = await _call_route(
+        app,
+        "/api/small_live/order",
+        payload={
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "market",
+            "quantity": 0.001,
+            "stop_loss_price": 49_000.0,
+            "client_order_id": "ui-dry-run-1",
+            "dry_run": True,
+        },
+    )
+
+    assert payload["ready"] is True
+    assert payload["dry_run"] is True
+    assert payload["would_submit"] is True
+    assert payload["submitted"] is False
+    assert payload["order"]["symbol"] == "BTCUSDT"
+    assert payload["order"]["has_stop_loss"] is True
+
+
+@pytest.mark.asyncio
+async def test_dashboard_small_live_order_blocks_real_submit_without_confirmation(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _safe_small_live_env(monkeypatch)
+    app = _build_app(tmp_path, tmp_db)
+    app.state.small_live_config_path = _write_small_live_config(tmp_path)
+
+    payload = await _call_route(
+        app,
+        "/api/small_live/order",
+        payload={
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "quantity": 0.001,
+            "stop_loss_price": 49_000.0,
+            "client_order_id": "ui-live-1",
+            "dry_run": False,
+        },
+    )
+
+    assert payload["ready"] is True
+    assert payload["submitted"] is False
+    assert "missing_live_order_confirmation" in payload["blockers"]
 
 
 def test_dashboard_risk_events_endpoint_parses_payload(

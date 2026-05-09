@@ -15,12 +15,16 @@ import os
 import sqlite3
 import sys
 import time
+from collections.abc import Mapping
+from dataclasses import fields
 from pathlib import Path
+from typing import Any
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,7 +36,17 @@ from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.data.ws_subscriber import WsSubscriber
 from core.db.migration_runner import MigrationRunner
+from core.execution.order_types import OrderHandle, OrderIntent
 from core.execution.paper_engine import PaperMatchingEngine
+from core.live.executor import SmallLiveExecutor
+from core.live.order_cli import LIVE_ORDER_CONFIRM_VALUE
+from core.live.small_live import PaperStatus, SmallLiveConfig, evaluate_small_live_readiness
+from core.live.trading_adapter import (
+    API_KEY_ENV_VAR,
+    API_SECRET_ENV_VAR,
+    BinanceSpotCredentials,
+    BinanceSpotTradingAdapter,
+)
 from core.monitor.market_health import summarize_market_health
 from core.monitor.paper_metrics import paper_metrics
 from dashboard.paper_trading import (
@@ -445,6 +459,7 @@ def create_app(
     app.state.paper_leverage = _PAPER_MARGIN_LEVERAGE
     app.state.balance_history: list[dict] = []
     app.state.trader = trader
+    app.state.small_live_config_path = Path(os.getenv("CQ_SMALL_LIVE_CONFIG", "config/small_live.yml"))
 
     # ─── REST API ──────────────────────────────────────────────────────────
 
@@ -628,6 +643,72 @@ def create_app(
         elif payload["status"] == "idle" and live_feed["status"] == "ok":
             payload["status"] = "ok"
         return payload
+
+    @app.get("/api/small_live/preflight")
+    def api_small_live_preflight():
+        return _small_live_preflight_payload(app, repo, cache, feeder)
+
+    @app.post("/api/small_live/order")
+    async def api_small_live_order(payload: dict[str, object]):
+        config, config_blockers = _load_small_live_config_for_app(app)
+        readiness = _small_live_readiness(app, repo, cache, feeder, config)
+        blockers = [*config_blockers, *readiness.blockers]
+        intent = _small_live_intent_from_payload(payload)
+        dry_run = bool(payload.get("dry_run", True))
+        confirmation = str(payload.get("confirmation") or "")
+
+        if not dry_run and confirmation != LIVE_ORDER_CONFIRM_VALUE:
+            blockers.append("missing_live_order_confirmation")
+        if not dry_run and not _small_live_credentials_present(os.environ):
+            blockers.append("missing_binance_spot_credentials")
+
+        if blockers:
+            return {
+                "ready": readiness.ready,
+                "dry_run": dry_run,
+                "submitted": False,
+                "would_submit": False,
+                "blockers": blockers,
+                "warnings": readiness.warnings,
+                "order": _small_live_order_summary(intent),
+            }
+
+        adapter = _DryRunLiveAdapter() if dry_run else BinanceSpotTradingAdapter(
+            credentials=BinanceSpotCredentials.from_env(os.environ),
+            proxy=_PROXY,
+        )
+        try:
+            result = await SmallLiveExecutor(
+                adapter=adapter,
+                config=config,
+                readiness=readiness,
+            ).submit_order(intent, now_ms=int(time.time() * 1000))
+        except Exception as exc:
+            return {
+                "ready": readiness.ready,
+                "dry_run": dry_run,
+                "submitted": False,
+                "would_submit": False,
+                "blockers": [str(exc)],
+                "warnings": readiness.warnings,
+                "order": _small_live_order_summary(intent),
+            }
+
+        return {
+            "ready": True,
+            "dry_run": dry_run,
+            "submitted": not dry_run,
+            "would_submit": dry_run,
+            "blockers": [],
+            "warnings": readiness.warnings,
+            "order": _small_live_order_summary(intent),
+            "entry": _small_live_handle_summary(result.entry),
+            "stop_loss": (
+                _small_live_handle_summary(result.stop_loss)
+                if result.stop_loss is not None
+                else None
+            ),
+        }
 
     @app.get("/api/strategies")
     def api_strategies():
@@ -956,6 +1037,139 @@ def _live_feed_health(feeder: LiveDataFeeder) -> dict[str, object]:
         "market_data_stale": market_data_stale,
         "bars_received": int(getattr(feeder, "_bar_counter", 0) or 0),
         "last_bar_age_ms": _feeder_last_bar_age_ms(feeder),
+    }
+
+
+class _DryRunLiveAdapter:
+    def __init__(self) -> None:
+        self._n = 0
+
+    async def place_order(self, intent: OrderIntent, *, now_ms: int) -> OrderHandle:
+        self._n += 1
+        return OrderHandle(
+            client_order_id=intent.client_order_id,
+            exchange_order_id=f"dry-run-{self._n}",
+            status="accepted",
+            submitted_at=now_ms,
+        )
+
+
+def _small_live_preflight_payload(
+    app: FastAPI,
+    repo: SqliteRepo,
+    cache: MemoryCache,
+    feeder: LiveDataFeeder,
+) -> dict[str, object]:
+    config, config_blockers = _load_small_live_config_for_app(app)
+    readiness = _small_live_readiness(app, repo, cache, feeder, config)
+    blockers = [*config_blockers, *readiness.blockers]
+    return {
+        "ready": not blockers,
+        "mode": config.mode,
+        "enabled": config.enabled,
+        "spot_only": config.exchange == "binance_spot"
+        and not config.allow_futures
+        and not config.allow_margin,
+        "credentials_present": _small_live_credentials_present(os.environ),
+        "allowed_symbols": list(config.allowed_symbols),
+        "blockers": blockers,
+        "warnings": readiness.warnings,
+        "budget_limits_configured": readiness.budget_limits_configured,
+        "config_path": str(getattr(app.state, "small_live_config_path", "")),
+    }
+
+
+def _small_live_readiness(
+    app: FastAPI,
+    repo: SqliteRepo,
+    cache: MemoryCache,
+    feeder: LiveDataFeeder,
+    config: SmallLiveConfig,
+) -> Any:
+    positions = _compute_positions(repo, cache)
+    account = _account_snapshot(
+        repo,
+        positions,
+        initial_balance=app.state.initial_balance,
+        leverage=app.state.paper_leverage,
+    )
+    paper_status = PaperStatus(
+        simulation_running=_feeder_running(feeder),
+        ws_connected=_feeder_running(feeder),
+        market_data_stale=_feeder_market_data_stale(feeder),
+        account_equity=float(account["equity"]),
+        initial_balance=float(account["initial_balance"]),
+        open_notional=float(account["open_notional"]),
+    )
+    return evaluate_small_live_readiness(config, paper_status, env=os.environ)
+
+
+def _load_small_live_config_for_app(app: FastAPI) -> tuple[SmallLiveConfig, list[str]]:
+    config_path = Path(getattr(app.state, "small_live_config_path", "config/small_live.yml"))
+    if not config_path.exists():
+        return SmallLiveConfig(), ["config_file_missing"]
+    return _load_dataclass(SmallLiveConfig, _load_yaml_mapping(config_path)), []
+
+
+def _load_yaml_mapping(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return data if isinstance(data, dict) else {}
+
+
+def _load_dataclass(cls: type, data: Mapping[str, Any]) -> Any:
+    allowed = {field.name for field in fields(cls)}
+    kwargs = {key: value for key, value in data.items() if key in allowed}
+    if "allowed_symbols" in kwargs and isinstance(kwargs["allowed_symbols"], list):
+        kwargs["allowed_symbols"] = tuple(str(item) for item in kwargs["allowed_symbols"])
+    return cls(**kwargs)
+
+
+def _small_live_credentials_present(env: Mapping[str, str]) -> bool:
+    return bool(env.get(API_KEY_ENV_VAR, "").strip() and env.get(API_SECRET_ENV_VAR, "").strip())
+
+
+def _small_live_intent_from_payload(payload: Mapping[str, object]) -> OrderIntent:
+    purpose = "exit" if payload.get("purpose") == "exit" else "entry"
+    return OrderIntent(
+        signal_id=0,
+        strategy="dashboard_small_live",
+        strategy_version="manual",
+        symbol=str(payload.get("symbol") or ""),
+        side="sell" if payload.get("side") == "sell" else "buy",
+        order_type="limit" if payload.get("order_type") == "limit" else "market",
+        quantity=float(payload.get("quantity") or 0.0),
+        price=_optional_float(payload.get("price")),
+        stop_loss_price=_optional_float(payload.get("stop_loss_price")),
+        purpose=purpose,
+        reduce_only=purpose == "exit",
+        client_order_id=str(payload.get("client_order_id") or ""),
+    )
+
+
+def _optional_float(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    return float(value)
+
+
+def _small_live_order_summary(intent: OrderIntent) -> dict[str, object]:
+    return {
+        "symbol": intent.symbol,
+        "side": intent.side,
+        "order_type": intent.order_type,
+        "purpose": intent.purpose,
+        "client_order_id": intent.client_order_id,
+        "has_stop_loss": intent.stop_loss_price is not None,
+    }
+
+
+def _small_live_handle_summary(handle: OrderHandle) -> dict[str, object]:
+    return {
+        "client_order_id": handle.client_order_id,
+        "exchange_order_id": handle.exchange_order_id,
+        "status": handle.status,
+        "submitted_at": handle.submitted_at,
     }
 
 

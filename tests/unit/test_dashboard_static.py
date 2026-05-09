@@ -150,3 +150,15 @@ def test_dashboard_static_page_shows_strategy_pnl_breakdown() -> None:
     assert "浮动" in html
     assert "合计" in html
     assert "保证金收益率" in html
+def test_dashboard_static_page_renders_small_live_control_panel() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "smallLive" in html
+    assert "/api/small_live/preflight" in html
+    assert "/api/small_live/order" in html
+    assert "实盘试运行" in html
+    assert "模拟检查" in html
+    assert "提交实盘订单" in html
+    assert "I_UNDERSTAND_LIVE_ORDER_RISK" in html
+    assert "dryRunSmallLiveOrder" in html
+    assert "submitSmallLiveOrder" in html

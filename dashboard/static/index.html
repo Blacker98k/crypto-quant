@@ -308,6 +308,50 @@
     background:linear-gradient(180deg,#ffffff,#f8fbff);
     padding:12px;
   }
+  .small-live-panel {
+    border:1px solid #f0d58a;
+    background:linear-gradient(135deg,#fffdf5 0%,#ffffff 52%,#f8fbff 100%);
+  }
+  .small-live-form {
+    display:grid;
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    gap:10px;
+  }
+  .field {
+    display:grid;
+    gap:5px;
+  }
+  .field label {
+    color:#475569;
+    font-size:12px;
+    font-weight:700;
+  }
+  .field input,
+  .field select {
+    width:100%;
+    min-height:38px;
+    border:1px solid #cbd5e1;
+    border-radius:8px;
+    background:#ffffff;
+    color:#0f172a;
+    padding:8px 10px;
+    font-size:13px;
+    outline:none;
+  }
+  .field input:focus,
+  .field select:focus {
+    border-color:#2563eb;
+    box-shadow:0 0 0 3px rgba(37,99,235,.14);
+  }
+  .small-live-result {
+    min-height:74px;
+    border-radius:10px;
+    border:1px dashed #d6b65a;
+    background:#fff9db;
+    padding:10px 12px;
+    color:#334155;
+    font-size:12px;
+  }
   .fresh-dot { width:7px; height:7px; border-radius:999px; background:#16a34a; box-shadow:0 0 0 3px rgba(22,163,74,.12); }
   .fresh-dot.slow { background:#d97706; box-shadow:0 0 0 3px rgba(217,119,6,.14); }
   .balance-box { height:210px; min-height:180px; }
@@ -319,6 +363,7 @@
   @media (max-width:1280px) {
     .market-workbench { grid-template-columns:1fr; }
     .operations-grid { grid-template-columns:1fr; }
+    .small-live-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .chart-shell { height:460px; }
     .side-stack > .panel:first-child { height:545px; }
   }
@@ -329,6 +374,7 @@
     .brand-lockup { min-width:0; }
     .brand-mark { width:36px; height:36px; }
     .chart-toolbar { grid-template-columns:1fr; }
+    .small-live-form { grid-template-columns:1fr; }
   }
 </style>
 </head>
@@ -559,6 +605,90 @@
     </aside>
   </main>
 
+  <section class="panel small-live-panel">
+    <div class="panel-head">
+      <div>
+        <div class="font-bold">实盘试运行</div>
+        <div class="subtle">手动 Spot small-live；策略自动下单仍保持关闭</div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span :class="smallLive.ready ? 'badge badge-ok' : 'badge badge-warn'">{{smallLive.ready ? '预检通过' : '预检阻塞'}}</span>
+        <span class="badge badge-paper">API Key {{smallLive.credentials_present ? '已在本机环境' : '未检测到'}}</span>
+      </div>
+    </div>
+    <div class="panel-body space-y-3">
+      <div class="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-3">
+        <div class="space-y-3">
+          <div class="small-live-form">
+            <div class="field">
+              <label for="sl-symbol">交易对</label>
+              <input id="sl-symbol" v-model="smallLiveForm.symbol" list="small-live-symbols" placeholder="BTCUSDT">
+              <datalist id="small-live-symbols">
+                <option v-for="sym in smallLive.allowed_symbols" :key="sym" :value="sym"></option>
+              </datalist>
+            </div>
+            <div class="field">
+              <label for="sl-side">方向</label>
+              <select id="sl-side" v-model="smallLiveForm.side">
+                <option value="buy">买入</option>
+                <option value="sell">卖出</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="sl-order-type">订单类型</label>
+              <select id="sl-order-type" v-model="smallLiveForm.order_type">
+                <option value="market">市价</option>
+                <option value="limit">限价</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="sl-quantity">数量</label>
+              <input id="sl-quantity" v-model="smallLiveForm.quantity" inputmode="decimal" placeholder="本地填写">
+            </div>
+            <div class="field">
+              <label for="sl-price">限价</label>
+              <input id="sl-price" v-model="smallLiveForm.price" inputmode="decimal" placeholder="限价单填写">
+            </div>
+            <div class="field">
+              <label for="sl-stop">止损价</label>
+              <input id="sl-stop" v-model="smallLiveForm.stop_loss_price" inputmode="decimal" placeholder="开仓必填">
+            </div>
+            <div class="field xl:col-span-2">
+              <label for="sl-client-id">订单 ID</label>
+              <input id="sl-client-id" v-model="smallLiveForm.client_order_id" placeholder="唯一订单ID">
+            </div>
+            <div class="field xl:col-span-4">
+              <label for="sl-confirm">确认短语</label>
+              <input id="sl-confirm" v-model="smallLiveForm.confirmation" placeholder="I_UNDERSTAND_LIVE_ORDER_RISK">
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button class="btn btn-secondary" @click="loadSmallLivePreflight">刷新预检</button>
+            <button class="btn btn-primary" @click="dryRunSmallLiveOrder" :disabled="smallLive.loading">模拟检查</button>
+            <button class="btn btn-danger" @click="submitSmallLiveOrder" :disabled="smallLive.loading || smallLiveForm.confirmation !== 'I_UNDERSTAND_LIVE_ORDER_RISK'">提交实盘订单</button>
+            <span class="subtle">真实提交必须先通过模拟检查，并输入完整确认短语。</span>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="mini-stat">
+            <div class="label">允许交易对</div>
+            <div class="value text-base">{{smallLive.allowed_symbols.length ? smallLive.allowed_symbols.join(', ') : '-'}}</div>
+          </div>
+          <div class="small-live-result">
+            <div class="font-bold mb-1">检查结果</div>
+            <div v-if="smallLive.blockers.length" class="neg">阻塞：{{smallLive.blockers.join(' / ')}}</div>
+            <div v-else class="pos">当前无阻塞</div>
+            <div v-if="smallLive.lastResult" class="mt-2">
+              <div>模式：{{smallLive.lastResult.dry_run ? '模拟检查' : '实盘提交'}}</div>
+              <div>结果：{{smallLive.lastResult.submitted ? '已提交' : (smallLive.lastResult.would_submit ? '可提交' : '未提交')}}</div>
+              <div v-if="smallLive.lastResult.entry">交易所状态：{{smallLive.lastResult.entry.status}}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="operations-grid">
     <section class="panel min-w-0">
       <div class="panel-head">
@@ -746,6 +876,21 @@ createApp({
     const strategyFilter = ref('')
     const orderStatusFilter = ref('')
     const toast = ref('')
+    const smallLive = reactive({
+      ready:false, enabled:false, mode:'paper', spot_only:false, credentials_present:false,
+      allowed_symbols:[], blockers:[], warnings:[], budget_limits_configured:false,
+      loading:false, lastResult:null,
+    })
+    const smallLiveForm = reactive({
+      symbol:'BTCUSDT',
+      side:'buy',
+      order_type:'market',
+      quantity:'',
+      price:'',
+      stop_loss_price:'',
+      client_order_id:'ui-'+Date.now(),
+      confirmation:'',
+    })
 
     let priceChart = null
     let candleSeries = null
@@ -821,6 +966,51 @@ createApp({
         strategies.value = r5
       } catch(e) {}
     }
+
+    const loadSmallLivePreflight = async () => {
+      try {
+        const payload = await fetch(API+'/api/small_live/preflight').then(r=>r.json())
+        Object.assign(smallLive, payload)
+        if (payload.allowed_symbols?.length && !payload.allowed_symbols.includes(smallLiveForm.symbol)) {
+          smallLiveForm.symbol = payload.allowed_symbols[0]
+        }
+      } catch(e) {
+        smallLive.blockers = ['preflight_request_failed']
+      }
+    }
+
+    const smallLivePayload = (dryRun) => ({
+      symbol: smallLiveForm.symbol,
+      side: smallLiveForm.side,
+      order_type: smallLiveForm.order_type,
+      quantity: Number(smallLiveForm.quantity || 0),
+      price: smallLiveForm.price === '' ? null : Number(smallLiveForm.price),
+      stop_loss_price: smallLiveForm.stop_loss_price === '' ? null : Number(smallLiveForm.stop_loss_price),
+      client_order_id: smallLiveForm.client_order_id,
+      confirmation: smallLiveForm.confirmation,
+      dry_run: dryRun,
+    })
+
+    const sendSmallLiveOrder = async (dryRun) => {
+      smallLive.loading = true
+      try {
+        const payload = await fetch(API+'/api/small_live/order', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(smallLivePayload(dryRun)),
+        }).then(r=>r.json())
+        smallLive.lastResult = payload
+        smallLive.blockers = payload.blockers || []
+        flash(dryRun ? '实盘模拟检查完成' : (payload.submitted ? '实盘订单已提交' : '实盘订单未提交'))
+      } catch(e) {
+        smallLive.blockers = ['order_request_failed']
+      } finally {
+        smallLive.loading = false
+      }
+    }
+
+    const dryRunSmallLiveOrder = async () => sendSmallLiveOrder(true)
+    const submitSmallLiveOrder = async () => sendSmallLiveOrder(false)
 
     const loadOrders = async () => {
       orders.value = await fetch(API+'/api/orders?limit=80&status='+orderStatusFilter.value).then(r=>r.json())
@@ -995,6 +1185,7 @@ createApp({
 
     onMounted(async () => {
       await loadAll()
+      await loadSmallLivePreflight()
       await loadPriceHistory()
       await loadBalanceHistory()
       connectWS()
@@ -1018,10 +1209,11 @@ createApp({
 
     return {
       status,paperMetrics,dataHealth,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
-      chartSymbol,chartTF,strategyFilter,orderStatusFilter,toast,
+      chartSymbol,chartTF,strategyFilter,orderStatusFilter,toast,smallLive,smallLiveForm,
       filteredOrders,isRunning,activePrice,
       fmt,tsToTime,statusLabel,signClass,healthBadge,priceAgeMs,freshnessText,
-      loadAll,loadPrices,loadOrders,loadPriceHistory,loadBalanceHistory,
+      loadAll,loadPrices,loadOrders,loadPriceHistory,loadBalanceHistory,loadSmallLivePreflight,
+      dryRunSmallLiveOrder,submitSmallLiveOrder,
       startSim,stopSim,randomOrder,
     }
   }
