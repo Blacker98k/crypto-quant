@@ -11,10 +11,9 @@ from dataclasses import dataclass, field
 
 ACK_ENV_VAR = "CQ_SMALL_LIVE_ACK"
 ACK_ENV_VALUE = "I_UNDERSTAND_REAL_MONEY_RISK"
-
-MAX_TOTAL_QUOTE_USDT = 50.0
-MAX_ORDER_QUOTE_USDT = 5.0
-MAX_DAILY_LOSS_USDT = 5.0
+TOTAL_LIMIT_ENV_VAR = "CQ_SMALL_LIVE_MAX_TOTAL_QUOTE_USDT"
+ORDER_LIMIT_ENV_VAR = "CQ_SMALL_LIVE_MAX_ORDER_QUOTE_USDT"
+DAILY_LOSS_LIMIT_ENV_VAR = "CQ_SMALL_LIVE_MAX_DAILY_LOSS_USDT"
 MAX_OPEN_POSITIONS = 2
 MAX_PAPER_DRAWDOWN_PCT = 5.0
 
@@ -52,18 +51,14 @@ class ReadinessReport:
     ready: bool
     blockers: list[str]
     warnings: list[str]
-    max_total_quote_usdt: float
-    max_order_quote_usdt: float
-    max_daily_loss_usdt: float
+    budget_limits_configured: bool
 
     def as_dict(self) -> dict[str, object]:
         return {
             "ready": self.ready,
             "blockers": self.blockers,
             "warnings": self.warnings,
-            "max_total_quote_usdt": self.max_total_quote_usdt,
-            "max_order_quote_usdt": self.max_order_quote_usdt,
-            "max_daily_loss_usdt": self.max_daily_loss_usdt,
+            "budget_limits_configured": self.budget_limits_configured,
         }
 
 
@@ -75,6 +70,7 @@ def evaluate_small_live_readiness(
 ) -> ReadinessReport:
     blockers: list[str] = []
     warnings: list[str] = []
+    safety_limits = _load_safety_limits(env)
 
     if not config.enabled:
         blockers.append("config_disabled")
@@ -94,16 +90,18 @@ def evaluate_small_live_readiness(
 
     if config.max_total_quote_usdt <= 0:
         blockers.append("total_budget_missing")
-    elif config.max_total_quote_usdt > MAX_TOTAL_QUOTE_USDT:
+    elif safety_limits is None or config.max_total_quote_usdt > safety_limits["total"]:
         blockers.append("total_budget_too_large")
     if config.max_order_quote_usdt <= 0:
         blockers.append("order_budget_missing")
-    elif config.max_order_quote_usdt > MAX_ORDER_QUOTE_USDT:
+    elif safety_limits is None or config.max_order_quote_usdt > safety_limits["order"]:
         blockers.append("order_budget_too_large")
     if config.max_daily_loss_usdt <= 0:
         blockers.append("daily_loss_cap_missing")
-    elif config.max_daily_loss_usdt > MAX_DAILY_LOSS_USDT:
+    elif safety_limits is None or config.max_daily_loss_usdt > safety_limits["daily_loss"]:
         blockers.append("daily_loss_cap_too_large")
+    if safety_limits is None:
+        blockers.append("safety_limits_missing")
     if config.max_open_positions <= 0:
         blockers.append("position_limit_missing")
     elif config.max_open_positions > MAX_OPEN_POSITIONS:
@@ -131,10 +129,30 @@ def evaluate_small_live_readiness(
         ready=not blockers,
         blockers=blockers,
         warnings=warnings,
-        max_total_quote_usdt=config.max_total_quote_usdt,
-        max_order_quote_usdt=config.max_order_quote_usdt,
-        max_daily_loss_usdt=config.max_daily_loss_usdt,
+        budget_limits_configured=safety_limits is not None,
     )
+
+
+def _load_safety_limits(env: Mapping[str, str]) -> dict[str, float] | None:
+    total = _positive_float_env(env, TOTAL_LIMIT_ENV_VAR)
+    order = _positive_float_env(env, ORDER_LIMIT_ENV_VAR)
+    daily_loss = _positive_float_env(env, DAILY_LOSS_LIMIT_ENV_VAR)
+    if total is None or order is None or daily_loss is None:
+        return None
+    return {"daily_loss": daily_loss, "order": order, "total": total}
+
+
+def _positive_float_env(env: Mapping[str, str], key: str) -> float | None:
+    raw = env.get(key)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    if value <= 0:
+        return None
+    return value
 
 
 def _paper_drawdown_pct(status: PaperStatus) -> float:
@@ -147,6 +165,9 @@ def _paper_drawdown_pct(status: PaperStatus) -> float:
 
 __all__ = [
     "ACK_ENV_VALUE",
+    "DAILY_LOSS_LIMIT_ENV_VAR",
+    "ORDER_LIMIT_ENV_VAR",
+    "TOTAL_LIMIT_ENV_VAR",
     "PaperStatus",
     "ReadinessReport",
     "SmallLiveConfig",

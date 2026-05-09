@@ -14,6 +14,9 @@ Run the gate:
 
 ```powershell
 $env:CQ_SMALL_LIVE_ACK="I_UNDERSTAND_REAL_MONEY_RISK"
+$env:CQ_SMALL_LIVE_MAX_TOTAL_QUOTE_USDT="<local-total-cap>"
+$env:CQ_SMALL_LIVE_MAX_ORDER_QUOTE_USDT="<local-order-cap>"
+$env:CQ_SMALL_LIVE_MAX_DAILY_LOSS_USDT="<local-daily-loss-cap>"
 uv run python scripts/small_live_readiness.py --config config/small_live.yml --paper-status-json reports/small-live-status.json
 ```
 

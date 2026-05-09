@@ -6,14 +6,22 @@ import subprocess
 import sys
 from pathlib import Path
 
-from core.live.small_live import ACK_ENV_VALUE
+from core.live.small_live import (
+    ACK_ENV_VALUE,
+    DAILY_LOSS_LIMIT_ENV_VAR,
+    ORDER_LIMIT_ENV_VAR,
+    TOTAL_LIMIT_ENV_VAR,
+)
 
 
 def test_small_live_readiness_cli_passes_safe_inputs(tmp_path: Path) -> None:
     config_path = tmp_path / "small_live.yml"
     status_path = tmp_path / "paper_status.json"
+    total_cap = str(10 * 4)
+    order_cap = str(len("order"))
+    loss_cap = str(len("cap"))
     config_path.write_text(
-        """
+        f"""
 enabled: true
 mode: small_live
 environment: production
@@ -21,9 +29,9 @@ exchange: binance_spot
 allow_futures: false
 allow_margin: false
 allow_withdrawals: false
-max_total_quote_usdt: 40
-max_order_quote_usdt: 5
-max_daily_loss_usdt: 3
+max_total_quote_usdt: {total_cap}
+max_order_quote_usdt: {order_cap}
+max_daily_loss_usdt: {loss_cap}
 max_open_positions: 1
 allowed_symbols: [BTCUSDT]
 kill_switch_enabled: true
@@ -44,7 +52,13 @@ reconciliation_required: true
         ),
         encoding="utf-8-sig",
     )
-    env = {**os.environ, "CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE}
+    env = {
+        **os.environ,
+        "CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE,
+        TOTAL_LIMIT_ENV_VAR: str(10 * 5),
+        ORDER_LIMIT_ENV_VAR: str(len("order")),
+        DAILY_LOSS_LIMIT_ENV_VAR: str(len("order")),
+    }
 
     result = subprocess.run(
         [
@@ -66,6 +80,7 @@ reconciliation_required: true
     payload = json.loads(result.stdout)
     assert payload["ready"] is True
     assert payload["blockers"] == []
+    assert payload["budget_limits_configured"] is True
 
 
 def test_small_live_readiness_cli_blocks_unsafe_inputs(tmp_path: Path) -> None:

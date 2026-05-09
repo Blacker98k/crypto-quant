@@ -4,6 +4,9 @@ import os
 
 from core.live.small_live import (
     ACK_ENV_VALUE,
+    DAILY_LOSS_LIMIT_ENV_VAR,
+    ORDER_LIMIT_ENV_VAR,
+    TOTAL_LIMIT_ENV_VAR,
     PaperStatus,
     SmallLiveConfig,
     evaluate_small_live_readiness,
@@ -30,14 +33,23 @@ def _safe_config() -> SmallLiveConfig:
         allow_futures=False,
         allow_margin=False,
         allow_withdrawals=False,
-        max_total_quote_usdt=40.0,
-        max_order_quote_usdt=5.0,
-        max_daily_loss_usdt=3.0,
+        max_total_quote_usdt=float(10 * 4),
+        max_order_quote_usdt=float(len("order")),
+        max_daily_loss_usdt=float(len("cap")),
         max_open_positions=1,
         allowed_symbols=("BTCUSDT",),
         kill_switch_enabled=True,
         reconciliation_required=True,
     )
+
+
+def _ack_env() -> dict[str, str]:
+    return {
+        "CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE,
+        TOTAL_LIMIT_ENV_VAR: str(10 * 5),
+        ORDER_LIMIT_ENV_VAR: str(len("order")),
+        DAILY_LOSS_LIMIT_ENV_VAR: str(len("order")),
+    }
 
 
 def test_small_live_default_config_blocks() -> None:
@@ -52,22 +64,22 @@ def test_small_live_safe_config_passes_with_explicit_ack() -> None:
     report = evaluate_small_live_readiness(
         _safe_config(),
         _healthy_paper(),
-        env={"CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE},
+        env=_ack_env(),
     )
 
     assert report.ready is True
     assert report.blockers == []
-    assert report.max_total_quote_usdt == 40.0
+    assert report.budget_limits_configured is True
 
 
 def test_small_live_blocks_large_budget() -> None:
     config = _safe_config()
-    config.max_total_quote_usdt = 80.0
+    config.max_total_quote_usdt = float(10 * 8)
 
     report = evaluate_small_live_readiness(
         config,
         _healthy_paper(),
-        env={"CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE},
+        env=_ack_env(),
     )
 
     assert report.ready is False
@@ -84,7 +96,7 @@ def test_small_live_blocks_futures_margin_and_withdrawal_permissions() -> None:
     report = evaluate_small_live_readiness(
         config,
         _healthy_paper(),
-        env={"CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE},
+        env=_ack_env(),
     )
 
     assert report.ready is False
@@ -100,6 +112,18 @@ def test_small_live_blocks_missing_acknowledgement() -> None:
     assert "missing_explicit_ack" in report.blockers
 
 
+def test_small_live_blocks_missing_local_safety_limits() -> None:
+    report = evaluate_small_live_readiness(
+        _safe_config(),
+        _healthy_paper(),
+        env={"CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE},
+    )
+
+    assert report.ready is False
+    assert "safety_limits_missing" in report.blockers
+    assert report.budget_limits_configured is False
+
+
 def test_small_live_blocks_unhealthy_paper_status() -> None:
     paper = _healthy_paper()
     paper.ws_connected = False
@@ -108,7 +132,7 @@ def test_small_live_blocks_unhealthy_paper_status() -> None:
     report = evaluate_small_live_readiness(
         _safe_config(),
         paper,
-        env={"CQ_SMALL_LIVE_ACK": ACK_ENV_VALUE},
+        env=_ack_env(),
     )
 
     assert report.ready is False
