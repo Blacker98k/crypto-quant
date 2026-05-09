@@ -241,6 +241,94 @@ def test_dashboard_status_reports_futures_equity_and_available_balance(
     assert payload["day_pnl"]["unrealized_pnl"] == 50.0
 
 
+def test_dashboard_status_reconciles_positions_fees_and_margin(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "type": "perp",
+                "base": "BTC",
+                "quote": "USDT",
+                "tick_size": 0.1,
+                "lot_size": 0.001,
+                "min_notional": 10.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    order_id = repo.insert_order(
+        {
+            "client_order_id": "fee-check",
+            "symbol_id": symbol["id"],
+            "side": "sell",
+            "type": "market",
+            "price": 51_000.0,
+            "quantity": 0.1,
+            "filled_qty": 0.1,
+            "avg_fill_price": 51_000.0,
+            "status": "filled",
+            "purpose": "entry",
+            "strategy_version": "explore_momentum",
+            "placed_at": 1_700_000_000_000,
+            "updated_at": 1_700_000_000_000,
+        }
+    )
+    repo.insert_fill(
+        {
+            "order_id": order_id,
+            "exchange_fill_id": "fee-check-fill",
+            "price": 51_000.0,
+            "quantity": 0.1,
+            "fee": 2.0,
+            "fee_currency": "USDT",
+            "ts": 1_700_000_000_100,
+        }
+    )
+    for side, qty, realized, closed_at in [
+        ("long", 0.1, 7.0, None),
+        ("short", 0.0, 3.0, 1_700_000_010_000),
+    ]:
+        repo.insert_position(
+            {
+                "symbol_id": symbol["id"],
+                "strategy": "explore_momentum",
+                "strategy_version": "explore_momentum",
+                "opening_signal_id": None,
+                "side": side,
+                "qty": qty,
+                "avg_entry_price": 50_000.0,
+                "current_price": 50_500.0,
+                "unrealized_pnl": 0.0,
+                "realized_pnl": realized,
+                "leverage": 1.0,
+                "margin": None,
+                "liq_price": None,
+                "stop_order_id": None,
+                "trade_group_id": None,
+                "opened_at": 1_700_000_000_000,
+                "closed_at": closed_at,
+            }
+        )
+    app = _build_app(tmp_path, tmp_db)
+
+    payload = _call_route(app, "/api/status")
+
+    assert payload["gross_realized_pnl"] == 10.0
+    assert payload["fees_paid"] == 2.0
+    assert payload["realized_pnl"] == 8.0
+    assert payload["unrealized_pnl"] == 50.0
+    assert payload["portfolio_value"] == 10_058.0
+    assert payload["open_notional"] == 5_050.0
+    assert payload["used_margin"] == 202.0
+    assert payload["available_balance"] == 9_856.0
+
+
 def test_dashboard_status_marks_stale_feeder_unhealthy(
     tmp_path: Path, tmp_db: sqlite3.Connection
 ) -> None:
@@ -766,9 +854,12 @@ def test_dashboard_strategies_endpoint_reports_real_pnl(tmp_path: Path, tmp_db: 
     row = next(item for item in payload if item["name"] == "explore_momentum")
     assert row["orders_count"] == 1
     assert row["fills_count"] == 1
-    assert row["realized_pnl"] == 10.0
+    assert row["gross_realized_pnl"] == 10.0
+    assert row["fees_paid"] == 1.0
+    assert row["realized_pnl"] == 9.0
     assert row["unrealized_pnl"] == 50.0
-    assert row["total_pnl"] == 60.0
+    assert row["total_pnl"] == 59.0
+    assert row["used_margin"] == 202.0
     assert row["roi"] > 0
 
 def test_dashboard_prices_include_freshness_metadata(

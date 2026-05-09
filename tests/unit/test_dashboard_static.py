@@ -63,13 +63,13 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
         "账户权益",
         "可用余额",
         "已用保证金",
-        "持仓市值",
+        "名义仓位",
         "浮动盈亏",
-        "累计成交额",
+        "今日成交额",
         "行情覆盖",
-        "订单总数",
-        "成交笔数",
-        "已实现盈亏",
+        "今日订单",
+        "今日成交",
+        "净已实现盈亏",
         "数据健康",
         "运行日志",
         "平均延迟",
@@ -79,7 +79,7 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
 
     for label in ["Data health", "Run logs", "Avg latency", "Max latency", "Cash PnL"]:
         assert label not in html
-    assert "持仓名义额" not in html
+    assert "合约名义额，不是现金余额" in html
 
 
 def test_dashboard_static_page_uses_professional_candlestick_chart() -> None:
@@ -142,6 +142,10 @@ def test_dashboard_static_page_shows_strategy_pnl_breakdown() -> None:
     assert "sc.realized_pnl" in html
     assert "sc.unrealized_pnl" in html
     assert "sc.open_notional" in html
-    assert "已实现" in html
+    assert "sc.used_margin" in html
+    assert "sc.fees_paid" in html
+    assert "sc.margin_roi" in html
+    assert "净实现" in html
     assert "浮动" in html
     assert "合计" in html
+    assert "保证金收益率" in html

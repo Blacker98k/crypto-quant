@@ -476,6 +476,9 @@ def create_app(
             "available_balance": account["available_balance"],
             "used_margin": account["used_margin"],
             "open_notional": account["open_notional"],
+            "gross_realized_pnl": account["gross_realized_pnl"],
+            "fees_paid": account["fees_paid"],
+            "net_realized_pnl": account["realized_pnl"],
             "realized_pnl": account["realized_pnl"],
             "unrealized_pnl": account["unrealized_pnl"],
             "paper_leverage": account["leverage"],
@@ -647,10 +650,15 @@ def create_app(
                 **pnl_by_strategy.get(
                     row["strategy_version"],
                     {
+                        "gross_realized_pnl": 0.0,
+                        "fees_paid": 0.0,
                         "realized_pnl": 0.0,
                         "unrealized_pnl": 0.0,
                         "total_pnl": 0.0,
                         "open_notional": 0.0,
+                        "used_margin": 0.0,
+                        "notional_roi": 0.0,
+                        "margin_roi": 0.0,
                         "roi": 0.0,
                     },
                 ),
@@ -670,10 +678,15 @@ def create_app(
                             **pnl_by_strategy.get(
                                 strategy,
                                 {
+                                    "gross_realized_pnl": 0.0,
+                                    "fees_paid": 0.0,
                                     "realized_pnl": 0.0,
                                     "unrealized_pnl": 0.0,
                                     "total_pnl": 0.0,
                                     "open_notional": 0.0,
+                                    "used_margin": 0.0,
+                                    "notional_roi": 0.0,
+                                    "margin_roi": 0.0,
                                     "roi": 0.0,
                                 },
                             ),
@@ -792,6 +805,9 @@ def create_app(
                     "available_balance": account["available_balance"],
                     "used_margin": account["used_margin"],
                     "open_notional": account["open_notional"],
+                    "gross_realized_pnl": account["gross_realized_pnl"],
+                    "fees_paid": account["fees_paid"],
+                    "net_realized_pnl": account["realized_pnl"],
                     "realized_pnl": account["realized_pnl"],
                     "unrealized_pnl": account["unrealized_pnl"],
                     "paper_leverage": account["leverage"],
@@ -978,29 +994,63 @@ def _strategy_pnl_summary(repo: SqliteRepo, cache: MemoryCache) -> dict[str, dic
         "SELECT strategy_version, SUM(realized_pnl) AS realized_pnl "
         "FROM positions GROUP BY strategy_version"
     ).fetchall()
+    fee_rows = repo._conn.execute(
+        "SELECT o.strategy_version, SUM(f.fee) AS fees_paid "
+        "FROM fills f JOIN orders o ON o.id = f.order_id "
+        "GROUP BY o.strategy_version"
+    ).fetchall()
     for realized_row in realized_rows:
         strategy = str(realized_row["strategy_version"] or "unknown")
         row = summary.setdefault(
             strategy,
             {
+                "gross_realized_pnl": 0.0,
+                "fees_paid": 0.0,
                 "realized_pnl": 0.0,
                 "unrealized_pnl": 0.0,
                 "total_pnl": 0.0,
                 "open_notional": 0.0,
+                "used_margin": 0.0,
+                "notional_roi": 0.0,
+                "margin_roi": 0.0,
                 "roi": 0.0,
             },
         )
-        row["realized_pnl"] = float(realized_row["realized_pnl"] or 0.0)
+        row["gross_realized_pnl"] = float(realized_row["realized_pnl"] or 0.0)
+
+    for fee_row in fee_rows:
+        strategy = str(fee_row["strategy_version"] or "unknown")
+        row = summary.setdefault(
+            strategy,
+            {
+                "gross_realized_pnl": 0.0,
+                "fees_paid": 0.0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "total_pnl": 0.0,
+                "open_notional": 0.0,
+                "used_margin": 0.0,
+                "notional_roi": 0.0,
+                "margin_roi": 0.0,
+                "roi": 0.0,
+            },
+        )
+        row["fees_paid"] = float(fee_row["fees_paid"] or 0.0)
 
     for position in _compute_positions(repo, cache):
         strategy = str(position.get("strategy") or "unknown")
         row = summary.setdefault(
             strategy,
             {
+                "gross_realized_pnl": 0.0,
+                "fees_paid": 0.0,
                 "realized_pnl": 0.0,
                 "unrealized_pnl": 0.0,
                 "total_pnl": 0.0,
                 "open_notional": 0.0,
+                "used_margin": 0.0,
+                "notional_roi": 0.0,
+                "margin_roi": 0.0,
                 "roi": 0.0,
             },
         )
@@ -1010,13 +1060,37 @@ def _strategy_pnl_summary(repo: SqliteRepo, cache: MemoryCache) -> dict[str, dic
         )
 
     for row in summary.values():
-        total_pnl = row["realized_pnl"] + row["unrealized_pnl"]
-        row["realized_pnl"] = round(row["realized_pnl"], 2)
+        net_realized_pnl = row["gross_realized_pnl"] - row["fees_paid"]
+        total_pnl = net_realized_pnl + row["unrealized_pnl"]
+        used_margin = row["open_notional"] / _PAPER_MARGIN_LEVERAGE if _PAPER_MARGIN_LEVERAGE else 0.0
+        row["gross_realized_pnl"] = round(row["gross_realized_pnl"], 2)
+        row["fees_paid"] = round(row["fees_paid"], 2)
+        row["realized_pnl"] = round(net_realized_pnl, 2)
         row["unrealized_pnl"] = round(row["unrealized_pnl"], 2)
         row["total_pnl"] = round(total_pnl, 2)
         row["open_notional"] = round(row["open_notional"], 2)
-        row["roi"] = round(total_pnl / row["open_notional"] * 100, 2) if row["open_notional"] else 0.0
+        row["used_margin"] = round(used_margin, 2)
+        row["notional_roi"] = (
+            round(total_pnl / row["open_notional"] * 100, 2) if row["open_notional"] else 0.0
+        )
+        row["margin_roi"] = round(total_pnl / used_margin * 100, 2) if used_margin else 0.0
+        row["roi"] = row["margin_roi"]
     return summary
+
+
+def _sum_position_realized_pnl(repo: SqliteRepo) -> float:
+    value = repo._conn.execute("SELECT SUM(realized_pnl) FROM positions").fetchone()[0]
+    return float(value or 0.0)
+
+
+def _sum_fees_paid(repo: SqliteRepo, since_ms: int = 0, until_ms: int | None = None) -> float:
+    if until_ms is None:
+        until_ms = int(time.time() * 1000)
+    value = repo._conn.execute(
+        "SELECT SUM(fee) FROM fills WHERE ts >= ? AND ts < ?",
+        (since_ms, until_ms),
+    ).fetchone()[0]
+    return float(value or 0.0)
 
 
 def _account_snapshot(
@@ -1026,8 +1100,9 @@ def _account_snapshot(
     initial_balance: float = _INITIAL_USDT_BALANCE,
     leverage: float = _PAPER_MARGIN_LEVERAGE,
 ) -> dict[str, float]:
-    metrics = paper_metrics(repo._conn, since_ms=0, until_ms=int(time.time() * 1000))
-    realized_pnl = float(metrics["fills"]["cash_pnl"])
+    gross_realized_pnl = _sum_position_realized_pnl(repo)
+    fees_paid = _sum_fees_paid(repo)
+    realized_pnl = gross_realized_pnl - fees_paid
     unrealized_pnl = _positions_unrealized_pnl(positions)
     open_notional = _positions_open_notional(positions)
     effective_leverage = leverage if leverage > 0 else 1.0
@@ -1039,6 +1114,8 @@ def _account_snapshot(
         "available_balance": round(equity - used_margin, 2),
         "used_margin": round(used_margin, 2),
         "open_notional": round(open_notional, 2),
+        "gross_realized_pnl": round(gross_realized_pnl, 2),
+        "fees_paid": round(fees_paid, 2),
         "realized_pnl": round(realized_pnl, 2),
         "unrealized_pnl": round(unrealized_pnl, 2),
         "leverage": round(effective_leverage, 2),

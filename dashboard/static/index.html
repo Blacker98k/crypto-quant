@@ -382,12 +382,12 @@
     <div class="metric metric-card">
       <div class="label">本日盈亏</div>
       <div class="value" :class="signClass(status.day_pnl.pnl)">{{status.day_pnl.pnl>=0?'+':''}}{{fmt(status.day_pnl.pnl)}}</div>
-      <div class="subtle">含浮盈 {{status.day_pnl.n}} 笔成交</div>
+      <div class="subtle">估算：今日已实现 + 当前浮盈</div>
     </div>
     <div class="metric metric-card">
       <div class="label">本周盈亏</div>
       <div class="value" :class="signClass(status.week_pnl.pnl)">{{status.week_pnl.pnl>=0?'+':''}}{{fmt(status.week_pnl.pnl)}}</div>
-      <div class="subtle">含浮盈 {{status.week_pnl.n}} 笔成交</div>
+      <div class="subtle">估算：本周已实现 + 当前浮盈</div>
     </div>
     <div class="metric metric-card">
       <div class="label">已用保证金</div>
@@ -395,9 +395,9 @@
       <div class="subtle">{{fmt(status.paper_leverage,0)}}x 模拟保证金</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">持仓市值</div>
+      <div class="label">名义仓位</div>
       <div class="value">${{fmt(status.open_notional)}}</div>
-      <div class="subtle">当前持仓 {{paperMetrics.positions.open || 0}}</div>
+      <div class="subtle">合约名义额，不是现金余额</div>
     </div>
     <div class="metric metric-card">
       <div class="label">浮动盈亏</div>
@@ -414,24 +414,24 @@
       <div class="subtle">Binance 公共行情</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">订单总数</div>
+      <div class="label">今日订单</div>
       <div class="value">{{paperMetrics.orders.total || 0}}</div>
       <div class="subtle">挂单 {{status.open_orders_n || 0}}</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">成交笔数</div>
+      <div class="label">今日成交</div>
       <div class="value">{{paperMetrics.fills.total || 0}}</div>
-      <div class="subtle">今日 {{status.day_pnl.n || 0}}</div>
+      <div class="subtle">本日窗口内成交</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">累计成交额</div>
+      <div class="label">今日成交额</div>
       <div class="value">${{fmt(paperMetrics.fills.filled_notional)}}</div>
       <div class="subtle">费用 ${{fmt(paperMetrics.fills.fees)}}</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">已实现盈亏</div>
-      <div class="value" :class="signClass(paperMetrics.fills.cash_pnl)">{{paperMetrics.fills.cash_pnl>=0?'+':''}}${{fmt(paperMetrics.fills.cash_pnl)}}</div>
-      <div class="subtle">已平仓收益，扣手续费</div>
+      <div class="label">净已实现盈亏</div>
+      <div class="value" :class="signClass(status.realized_pnl)">{{status.realized_pnl>=0?'+':''}}${{fmt(status.realized_pnl)}}</div>
+      <div class="subtle">毛盈亏 ${{fmt(status.gross_realized_pnl)}} - 手续费 ${{fmt(status.fees_paid)}}</div>
     </div>
     <div class="metric metric-card">
       <div class="label">风险事件</div>
@@ -603,7 +603,7 @@
           <div class="font-bold">最近成交</div>
           <div class="subtle">成交笔数 {{paperMetrics.fills.total}}</div>
         </div>
-        <div class="subtle" :class="signClass(paperMetrics.fills.cash_pnl)">已实现盈亏 {{paperMetrics.fills.cash_pnl>=0?'+':''}}${{fmt(paperMetrics.fills.cash_pnl)}}</div>
+        <div class="subtle" :class="signClass(status.realized_pnl)">净已实现 {{status.realized_pnl>=0?'+':''}}${{fmt(status.realized_pnl)}}</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -631,7 +631,7 @@
           <div class="font-bold">当前持仓</div>
           <div class="subtle">持仓 {{paperMetrics.positions.open}}</div>
         </div>
-        <div class="subtle">持仓市值 ${{fmt(status.open_notional)}}</div>
+        <div class="subtle">名义仓位 ${{fmt(status.open_notional)}} / 保证金 ${{fmt(status.used_margin)}}</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -672,7 +672,7 @@
         >
           <div class="flex items-center justify-between gap-3">
             <span class="font-bold">{{sc.name}}</span>
-            <span class="subtle">收益率 {{sc.roi}}%</span>
+            <span class="subtle">保证金收益率 {{sc.margin_roi ?? sc.roi}}%</span>
           </div>
           <div class="mt-3 grid grid-cols-3 gap-2 subtle">
             <span>订单 {{sc.orders_count}}</span>
@@ -680,9 +680,14 @@
             <span :class="signClass(sc.total_pnl)">合计 {{sc.total_pnl>=0?'+':''}}${{fmt(sc.total_pnl)}}</span>
           </div>
           <div class="mt-2 grid grid-cols-3 gap-2 subtle">
-            <span :class="signClass(sc.realized_pnl)">已实现 {{sc.realized_pnl>=0?'+':''}}${{fmt(sc.realized_pnl)}}</span>
+            <span :class="signClass(sc.realized_pnl)">净实现 {{sc.realized_pnl>=0?'+':''}}${{fmt(sc.realized_pnl)}}</span>
             <span :class="signClass(sc.unrealized_pnl)">浮动 {{sc.unrealized_pnl>=0?'+':''}}${{fmt(sc.unrealized_pnl)}}</span>
-            <span>仓位 ${{fmt(sc.open_notional)}}</span>
+            <span>保证金 ${{fmt(sc.used_margin)}}</span>
+          </div>
+          <div class="mt-2 grid grid-cols-3 gap-2 subtle">
+            <span>名义 ${{fmt(sc.open_notional)}}</span>
+            <span>手续费 ${{fmt(sc.fees_paid)}}</span>
+            <span>名义收益率 {{sc.notional_roi}}%</span>
           </div>
         </button>
         <div v-if="strategies.length===0" class="subtle">暂无策略订单。</div>
@@ -714,6 +719,7 @@ createApp({
       mode:'paper', simulation_running:false, ws_connected:false, bars_received:0,
       initial_balance:10000, portfolio_value:10000, usdt_balance:10000, open_positions_n:0, open_orders_n:0,
       account_equity:10000, available_balance:10000, used_margin:0, open_notional:0,
+      gross_realized_pnl:0, fees_paid:0, net_realized_pnl:0,
       realized_pnl:0, unrealized_pnl:0, paper_leverage:25,
       risk_events_n:0, critical_risk_events_n:0,
       day_pnl:{n:0,pnl:0}, week_pnl:{n:0,pnl:0}, latest_prices:{}
@@ -969,6 +975,9 @@ createApp({
           available_balance: msg.available_balance ?? msg.usdt_balance,
           used_margin: msg.used_margin ?? status.used_margin,
           open_notional: msg.open_notional ?? status.open_notional,
+          gross_realized_pnl: msg.gross_realized_pnl ?? status.gross_realized_pnl,
+          fees_paid: msg.fees_paid ?? status.fees_paid,
+          net_realized_pnl: msg.net_realized_pnl ?? msg.realized_pnl ?? status.net_realized_pnl,
           realized_pnl: msg.realized_pnl ?? status.realized_pnl,
           unrealized_pnl: msg.unrealized_pnl ?? status.unrealized_pnl,
           paper_leverage: msg.paper_leverage ?? status.paper_leverage,
