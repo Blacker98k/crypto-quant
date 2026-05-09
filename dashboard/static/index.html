@@ -674,9 +674,10 @@
             <span class="font-bold">{{sc.name}}</span>
             <span class="subtle">保证金收益率 {{sc.margin_roi ?? sc.roi}}%</span>
           </div>
-          <div class="mt-3 grid grid-cols-3 gap-2 subtle">
+          <div class="mt-3 grid grid-cols-4 gap-2 subtle">
             <span>订单 {{sc.orders_count}}</span>
             <span>成交 {{sc.fills_count}}</span>
+            <span>胜率 {{fmt(sc.win_rate)}}%</span>
             <span :class="signClass(sc.total_pnl)">合计 {{sc.total_pnl>=0?'+':''}}${{fmt(sc.total_pnl)}}</span>
           </div>
           <div class="mt-2 grid grid-cols-3 gap-2 subtle">

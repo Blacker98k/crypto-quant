@@ -860,6 +860,7 @@ def test_dashboard_strategies_endpoint_reports_real_pnl(tmp_path: Path, tmp_db: 
     assert row["unrealized_pnl"] == 50.0
     assert row["total_pnl"] == 59.0
     assert row["used_margin"] == 202.0
+    assert row["win_rate"] == 100.0
     assert row["roi"] > 0
 
 def test_dashboard_prices_include_freshness_metadata(

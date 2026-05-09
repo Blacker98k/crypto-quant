@@ -145,6 +145,7 @@ def test_dashboard_static_page_shows_strategy_pnl_breakdown() -> None:
     assert "sc.used_margin" in html
     assert "sc.fees_paid" in html
     assert "sc.margin_roi" in html
+    assert "sc.win_rate" in html
     assert "净实现" in html
     assert "浮动" in html
     assert "合计" in html

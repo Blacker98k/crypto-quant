@@ -641,12 +641,13 @@ def create_app(
         ).fetchall()
         fills_by_strategy = {row["strategy_version"]: row["fills_count"] for row in fills}
         pnl_by_strategy = _strategy_pnl_summary(repo, cache)
+        win_rate_by_strategy = _strategy_win_rates(repo)
         payload = [
             {
                 "name": row["strategy_version"] or "unknown",
                 "orders_count": row["orders_count"],
                 "fills_count": fills_by_strategy.get(row["strategy_version"], 0),
-                "win_rate": 0.0,
+                "win_rate": win_rate_by_strategy.get(row["strategy_version"] or "unknown", 0.0),
                 **pnl_by_strategy.get(
                     row["strategy_version"],
                     {
@@ -674,7 +675,7 @@ def create_app(
                             "name": strategy,
                             "orders_count": 0,
                             "fills_count": 0,
-                            "win_rate": 0.0,
+                            "win_rate": win_rate_by_strategy.get(strategy, 0.0),
                             **pnl_by_strategy.get(
                                 strategy,
                                 {
@@ -986,6 +987,21 @@ def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
             }
         )
     return positions
+
+
+def _strategy_win_rates(repo: SqliteRepo) -> dict[str, float]:
+    rows = repo._conn.execute(
+        "SELECT strategy_version, COUNT(*) AS closed_count, "
+        "SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins "
+        "FROM positions WHERE closed_at IS NOT NULL GROUP BY strategy_version"
+    ).fetchall()
+    return {
+        str(row["strategy_version"] or "unknown"): round(
+            float(row["wins"] or 0) / float(row["closed_count"] or 1) * 100,
+            2,
+        )
+        for row in rows
+    }
 
 
 def _strategy_pnl_summary(repo: SqliteRepo, cache: MemoryCache) -> dict[str, dict[str, float]]:
