@@ -1,0 +1,25 @@
+# crypto-quant small-live readiness example.
+#
+# This file contains no secrets and does not enable real trading by itself.
+# Copy to config/small_live.yml only when operating on your own machine.
+
+enabled: false
+mode: paper
+environment: development
+
+# First small-live phase is spot-only. Futures, margin, and withdrawals stay forbidden.
+exchange: binance_spot
+allow_futures: false
+allow_margin: false
+allow_withdrawals: false
+
+# Small-live hard caps. Keep these tiny while validating reconciliation.
+max_total_quote_usdt: 40
+max_order_quote_usdt: 5
+max_daily_loss_usdt: 3
+max_open_positions: 1
+allowed_symbols:
+  - BTCUSDT
+
+kill_switch_enabled: true
+reconciliation_required: true
