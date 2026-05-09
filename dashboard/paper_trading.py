@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -17,7 +18,14 @@ from core.data.memory_cache import MemoryCache
 from core.data.sqlite_repo import SqliteRepo
 from core.execution.order_types import OrderHandle, OrderIntent
 from core.execution.paper_engine import PaperMatchingEngine
-from core.strategy.base import Signal
+from core.risk import (
+    L1OrderRiskValidator,
+    L2PositionRiskSizer,
+    L3PortfolioRiskValidator,
+    StrategySignalValidator,
+)
+from core.strategy import S1BtcEthTrend, S2AltcoinReversal
+from core.strategy.base import DataRequirement, Signal, Strategy, StrategyContext
 
 UNIVERSE_NAME = "top30"
 UNIVERSE_VERSION = "binance-usdt-top30"
@@ -34,7 +42,7 @@ DEFAULT_TOP30_USDT = [
     "LINKUSDT",
     "TRXUSDT",
     "DOTUSDT",
-    "MATICUSDT",
+    "POLUSDT",
     "LTCUSDT",
     "BCHUSDT",
     "UNIUSDT",
@@ -69,7 +77,7 @@ _MAINSTREAM_BASES = {
     "LINK",
     "TRX",
     "DOT",
-    "MATIC",
+    "POL",
     "LTC",
     "BCH",
     "UNI",
@@ -121,6 +129,157 @@ class _StrategyLike(Protocol):
     min_bars: int
 
     def evaluate(self, symbol: str, bars: list[Bar]) -> Signal | None: ...
+
+
+class _ClockAtBar:
+    def __init__(self, now_ms: int) -> None:
+        self._now_ms = now_ms
+
+    def now_ms(self) -> int:
+        return self._now_ms
+
+
+class CoreStrategyAdapter:
+    """Adapt a core Strategy into the dashboard's per-bar strategy protocol."""
+
+    def __init__(
+        self,
+        strategy: Strategy,
+        *,
+        feed: Any,
+        repo: SqliteRepo,
+        account_equity: Callable[[], float] | float = 10_000.0,
+        symbols: list[str] | None = None,
+        follow_symbols: bool = False,
+    ) -> None:
+        self._strategy = strategy
+        self._feed = feed
+        self._repo = repo
+        self._account_equity = account_equity
+        self._base_requirement = strategy.required_data()
+        self._follow_symbols = follow_symbols
+        self._requirement = self._requirement_with_symbols(symbols)
+        self.name = strategy.name
+        self.min_bars = max(1, min(self._requirement.history_lookback_bars, 120))
+
+    @property
+    def requirement(self) -> DataRequirement:
+        return self._requirement
+
+    def replace_symbols(self, symbols: list[str]) -> None:
+        if self._follow_symbols:
+            self._requirement = self._requirement_with_symbols(symbols)
+
+    def supports(self, symbol: str, timeframe: str) -> bool:
+        if self._requirement.symbols and symbol not in self._requirement.symbols:
+            return False
+        return not self._requirement.timeframes or timeframe in self._requirement.timeframes
+
+    def evaluate(self, symbol: str, bars: list[Bar]) -> Signal | None:
+        if not bars:
+            return None
+        bar = bars[-1]
+        if not self.supports(symbol, bar.timeframe):
+            return None
+        ctx = StrategyContext(
+            data=self._feed,
+            clock=_ClockAtBar(bar.ts),
+            repo=self._repo,
+            strategy_name=self._strategy.name,
+            account_equity=self._current_equity(),
+        )
+        signals = self._strategy.on_bar(bar, ctx)
+        for signal in signals:
+            if signal.symbol == symbol and signal.side in {"long", "short"}:
+                return signal
+        return None
+
+    def _current_equity(self) -> float:
+        if callable(self._account_equity):
+            return float(self._account_equity())
+        return float(self._account_equity)
+
+    def _requirement_with_symbols(self, symbols: list[str] | None) -> DataRequirement:
+        active_symbols = list(dict.fromkeys(symbols or self._base_requirement.symbols))
+        return DataRequirement(
+            symbols=active_symbols,
+            timeframes=list(self._base_requirement.timeframes),
+            history_lookback_bars=self._base_requirement.history_lookback_bars,
+            needs_funding=self._base_requirement.needs_funding,
+            needs_orderbook_l1=self._base_requirement.needs_orderbook_l1,
+            needs_orderbook_l5=self._base_requirement.needs_orderbook_l5,
+            subscribe_partial_bars=self._base_requirement.subscribe_partial_bars,
+        )
+
+
+@dataclass(slots=True)
+class DashboardRiskResult:
+    accepted: bool
+    intent: OrderIntent | None = None
+    source: str = "risk"
+    reason: str | None = None
+
+
+class DashboardRiskPipeline:
+    """Apply the formal signal, portfolio, position, and order risk gates."""
+
+    def __init__(
+        self,
+        *,
+        signal_validator: StrategySignalValidator | None = None,
+        portfolio_risk: L3PortfolioRiskValidator | None = None,
+        position_risk: L2PositionRiskSizer | None = None,
+        order_risk: L1OrderRiskValidator | None = None,
+    ) -> None:
+        self._signal_validator = signal_validator or StrategySignalValidator()
+        self._portfolio_risk = portfolio_risk or L3PortfolioRiskValidator()
+        self._position_risk = position_risk or L2PositionRiskSizer()
+        self._order_risk = order_risk or L1OrderRiskValidator()
+
+    def validate(
+        self,
+        *,
+        signal: Signal,
+        requirement: DataRequirement,
+        reference_symbol: str,
+        reference_price: float,
+        intent: OrderIntent,
+        repo: SqliteRepo,
+    ) -> DashboardRiskResult:
+        signal_decision = self._signal_validator.validate(
+            signal,
+            requirement=requirement,
+            reference_symbol=reference_symbol,
+            reference_price=reference_price,
+        )
+        if not signal_decision.accepted:
+            return DashboardRiskResult(False, source="signal", reason=signal_decision.reason)
+
+        symbol_info = repo.get_symbol(intent.symbol)
+        symbol_id = int(symbol_info["id"]) if symbol_info is not None else None
+        portfolio_decision = self._portfolio_risk.validate(
+            intent,
+            reference_price=reference_price,
+            open_positions=repo.list_open_positions(),
+            symbol_id=symbol_id,
+        )
+        if not portfolio_decision.accepted:
+            return DashboardRiskResult(False, source="L3", reason=portfolio_decision.reason)
+
+        position_decision = self._position_risk.size(intent, reference_price=reference_price)
+        if not position_decision.accepted:
+            return DashboardRiskResult(False, source="L2", reason=position_decision.reason)
+        intent.quantity = position_decision.quantity
+
+        order_decision = self._order_risk.validate(
+            intent,
+            symbol_info=dict(symbol_info or {}),
+            reference_price=reference_price,
+        )
+        if not order_decision.accepted:
+            return DashboardRiskResult(False, source="L1", reason=order_decision.reason)
+
+        return DashboardRiskResult(True, intent=intent)
 
 
 def select_top_usdt_symbols(rows: list[dict[str, Any]], limit: int = 30) -> list[str]:
@@ -290,6 +449,7 @@ class DashboardPaperTrader:
         max_orders_per_symbol: int = 120,
         order_cap_window_ms: int = 60 * 60 * 1000,
         max_open_notional_usdt: float | None = None,
+        risk_pipeline: DashboardRiskPipeline | None = None,
     ) -> None:
         self._repo = repo
         self._cache = cache
@@ -307,6 +467,7 @@ class DashboardPaperTrader:
         self._max_open_notional_usdt = (
             max(float(max_open_notional_usdt), 0.0) if max_open_notional_usdt is not None else None
         )
+        self._risk_pipeline = risk_pipeline or DashboardRiskPipeline()
         self._last_trade_ms: dict[tuple[str, str], int] = {}
         self._evaluations: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -320,15 +481,22 @@ class DashboardPaperTrader:
 
     def replace_symbols(self, symbols: list[str]) -> None:
         self._symbols = list(dict.fromkeys(symbols))
+        for strategy in self._strategies:
+            replace_symbols = getattr(strategy, "replace_symbols", None)
+            if callable(replace_symbols):
+                replace_symbols(self._symbols)
 
     def on_bar(self, bar: Bar, now_ms: int | None = None) -> list[OrderHandle]:
-        if not bar.closed or bar.timeframe != "1m" or bar.symbol not in self._symbols:
+        if not bar.closed or bar.symbol not in self._symbols:
             return []
         now = now_ms or int(time.time() * 1000)
         self._cache.push_bar(bar)
         handles: list[OrderHandle] = []
-        bars = self._cache.get_bars(bar.symbol, "1m", n=80)
+        bars = self._cache.get_bars(bar.symbol, bar.timeframe, n=500)
         for strategy in self._strategies:
+            supports = getattr(strategy, "supports", None)
+            if callable(supports) and not supports(bar.symbol, bar.timeframe):
+                continue
             signal = strategy.evaluate(bar.symbol, bars)
             self._evaluations[(bar.symbol, strategy.name)] = {
                 "symbol": bar.symbol,
@@ -438,27 +606,50 @@ class DashboardPaperTrader:
             evaluation["throttle_reason"] = "portfolio_notional_cap"
             evaluation["max_open_notional_usdt"] = self._max_open_notional_usdt
             return None
-        quantity = self._round_qty(signal.symbol, self._notional_for_strategy(strategy_name) / price)
+        raw_quantity = signal.suggested_size if signal.suggested_size > 0 else self._notional_for_strategy(strategy_name) / price
+        quantity = self._round_qty(signal.symbol, raw_quantity)
         if quantity * price < 5.0:
             self._record_risk("min_notional", "warn", strategy_name, signal, now_ms)
             return None
         signal.suggested_size = quantity
         signal_id = self._insert_signal(strategy_name, signal, now_ms)
         side = "buy" if signal.side == "long" else "sell"
+        intent = OrderIntent(
+            signal_id=signal_id,
+            strategy=strategy_name,
+            strategy_version=strategy_name,
+            trade_group_id=signal.trade_group_id or uuid.uuid4().hex[:12],
+            symbol=signal.symbol,
+            side=side,
+            order_type="market",
+            quantity=quantity,
+            purpose="entry",
+            stop_loss_price=signal.stop_price,
+            client_order_id=f"{strategy_name}-{signal.symbol}-{now_ms}-{uuid.uuid4().hex[:6]}",
+        )
+        risk = self._risk_pipeline.validate(
+            signal=signal,
+            requirement=self._requirement_for_strategy(strategy_name, signal.symbol),
+            reference_symbol=signal.symbol,
+            reference_price=price,
+            intent=intent,
+            repo=self._repo,
+        )
+        if not risk.accepted or risk.intent is None:
+            self._record_risk(
+                risk.reason or "risk_rejected",
+                "warn",
+                strategy_name,
+                signal,
+                now_ms,
+                source=risk.source,
+                event_type="order_rejected",
+            )
+            self._repo._conn.execute("UPDATE signals SET status=?, reject_reason=? WHERE id=?", ("rejected", risk.reason, signal_id))
+            self._repo._conn.commit()
+            return None
         handle = self._engine.place_order(
-            OrderIntent(
-                signal_id=signal_id,
-                strategy=strategy_name,
-                strategy_version=strategy_name,
-                trade_group_id=signal.trade_group_id or uuid.uuid4().hex[:12],
-                symbol=signal.symbol,
-                side=side,
-                order_type="market",
-                quantity=quantity,
-                purpose="entry",
-                stop_loss_price=signal.stop_price,
-                client_order_id=f"{strategy_name}-{signal.symbol}-{now_ms}-{uuid.uuid4().hex[:6]}",
-            ),
+            risk.intent,
             now_ms,
         )
         self._repo._conn.execute(
@@ -512,12 +703,15 @@ class DashboardPaperTrader:
         strategy_name: str,
         signal: Signal,
         now_ms: int,
+        *,
+        source: str = "dashboard_trader",
+        event_type: str = "paper_signal_skipped",
     ) -> None:
         self._repo.insert_risk_event(
             {
-                "type": "paper_signal_skipped",
+                "type": event_type,
                 "severity": severity,
-                "source": "dashboard_trader",
+                "source": source,
                 "related_id": None,
                 "payload": json.dumps(
                     {"reason": reason, "symbol": signal.symbol, "strategy": strategy_name},
@@ -561,6 +755,12 @@ class DashboardPaperTrader:
         multiplier = self._strategy_notional_multipliers.get(strategy_name, 1.0)
         return max(self._notional_usdt * multiplier, 5.0)
 
+    def _requirement_for_strategy(self, strategy_name: str, symbol: str) -> DataRequirement:
+        for strategy in self._strategies:
+            if strategy.name == strategy_name and hasattr(strategy, "requirement"):
+                return strategy.requirement
+        return DataRequirement(symbols=[symbol], timeframes=["1m"])
+
     def _round_qty(self, symbol: str, quantity: float) -> float:
         row = self._repo.get_symbol(symbol)
         lot_size = float(row["lot_size"] if row is not None else 0.0001)
@@ -575,6 +775,25 @@ def default_exploration_strategies() -> list[ExplorationStrategy]:
         ExplorationStrategy("explore_momentum", min_bars=2),
         ExplorationStrategy("explore_mean_reversion", min_bars=3),
         ExplorationStrategy("explore_volatility", min_bars=2),
+    ]
+
+
+def default_dashboard_strategies(
+    *,
+    feed: Any,
+    repo: SqliteRepo,
+    account_equity: Callable[[], float] | float = 10_000.0,
+) -> list[CoreStrategyAdapter]:
+    return [
+        CoreStrategyAdapter(S1BtcEthTrend(), feed=feed, repo=repo, account_equity=account_equity),
+        CoreStrategyAdapter(
+            S2AltcoinReversal(),
+            feed=feed,
+            repo=repo,
+            account_equity=account_equity,
+            symbols=DEFAULT_TOP30_USDT,
+            follow_symbols=True,
+        ),
     ]
 
 
@@ -610,9 +829,13 @@ def _default_lot_size(symbol: str) -> float:
 __all__ = [
     "DEFAULT_TOP30_USDT",
     "UNIVERSE_NAME",
+    "CoreStrategyAdapter",
     "DashboardPaperTrader",
+    "DashboardRiskPipeline",
     "ExplorationStrategy",
     "bars_from_binance_klines",
+    "default_dashboard_strategies",
+    "default_exploration_strategies",
     "fetch_binance_recent_klines",
     "fetch_binance_top_usdt_symbols",
     "select_top_usdt_symbols",

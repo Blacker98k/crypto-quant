@@ -45,5 +45,5 @@ cat <<'EOF'
 
 P1.3 / P1.9 上线后追加：
   - data-feed-daemon  PID + WS 心跳
-  - dashboard         http://127.0.0.1:8088/health
+  - dashboard         http://127.0.0.1:8089/api/data_health
 EOF

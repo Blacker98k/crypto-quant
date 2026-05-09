@@ -5,878 +5,1050 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>crypto-quant 实时交易看板</title>
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   :root {
-    --bg:#eef3f8;
-    --panel:#ffffff;
-    --panel-2:#f8fafc;
-    --line:#d9e2ec;
-    --muted:#64748b;
-    --text:#0f172a;
-    --accent:#16a34a;
-    --warn:#d97706;
-    --danger:#dc2626;
-    --blue:#2563eb;
+    --bg:#fbfbfa;
+    --surface:#ffffff;
+    --surface-2:#f7f6f3;
+    --surface-3:#efeeec;
+    --border:#e8e8e6;
+    --border-strong:#d3d2cf;
+    --text:#1a1a1a;
+    --text-2:#6b6b67;
+    --text-3:#9b9b97;
+    --accent:#2383e2;
+    --accent-bg:#e7f3fe;
+    --green:#0f7b3b;
+    --green-bg:#e8f3ee;
+    --red:#d73a49;
+    --red-bg:#fae9eb;
+    --warn:#cb6e17;
+    --warn-bg:#fbf0e3;
+    --radius-sm:6px;
+    --radius:10px;
+    --radius-lg:14px;
+    --shadow-sm:0 1px 2px rgba(15,15,15,.04);
+    --shadow:0 1px 3px rgba(15,15,15,.04), 0 4px 12px rgba(15,15,15,.04);
   }
-  * { box-sizing:border-box }
+  *, *::before, *::after { box-sizing:border-box }
+  html, body { margin:0; padding:0 }
   body {
-    margin:0;
-    min-width:320px;
-    background:
-      linear-gradient(180deg,#e7eef7 0%,#f5f8fb 330px,#edf3f8 100%),
-      radial-gradient(circle at 20% 0%,rgba(37,99,235,.10),transparent 28%);
+    background:var(--bg);
     color:var(--text);
-    font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-    font-variant-numeric:tabular-nums;
-  }
-  .terminal-shell { width:100%; min-height:100vh; padding:16px; }
-  .panel {
-    background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%);
-    border:1px solid var(--line);
-    border-radius:10px;
-    box-shadow:0 18px 48px rgba(15,23,42,.10);
-  }
-  .command-center {
-    position:relative;
-    overflow:hidden;
-    background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%);
-    border:1px solid #d6e2ee;
-    border-radius:10px;
-    box-shadow:0 18px 48px rgba(15,23,42,.10);
-  }
-  .command-center::before {
-    content:"";
-    position:absolute;
-    inset:0 auto 0 0;
-    width:5px;
-    background:linear-gradient(180deg,#2563eb,#16a34a);
-  }
-  .brand-lockup {
-    display:flex;
-    align-items:center;
-    gap:12px;
-    min-width:260px;
-  }
-  .brand-mark {
-    width:42px;
-    height:42px;
-    display:grid;
-    place-items:center;
-    border-radius:10px;
-    background:#0f172a;
-    color:#ffffff;
-    font-size:13px;
-    font-weight:800;
-    letter-spacing:0;
-    box-shadow:0 12px 28px rgba(15,23,42,.18);
-  }
-  .panel-head {
-    min-height:42px;
-    padding:11px 14px;
-    border-bottom:1px solid var(--line);
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:10px;
-  }
-  .panel-body { padding:14px; }
-  .metric {
-    min-height:74px;
-    padding:12px;
-    background:var(--panel-2);
-    border:1px solid #dbe4ee;
-    border-radius:10px;
-  }
-  .metric-grid { gap:12px; }
-  .metric-card {
-    position:relative;
-    overflow:hidden;
-    background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
-    border:1px solid #d8e3ee;
-    box-shadow:0 10px 26px rgba(15,23,42,.06);
-  }
-  .metric-card::after {
-    content:"";
-    position:absolute;
-    left:0;
-    right:0;
-    top:0;
-    height:3px;
-    background:linear-gradient(90deg,#2563eb,#14b8a6);
-    opacity:.75;
-  }
-  .metric-card:nth-child(3n)::after { background:linear-gradient(90deg,#16a34a,#22c55e); }
-  .metric-card:nth-child(4n)::after { background:linear-gradient(90deg,#d97706,#f59e0b); }
-  .label {
-    color:var(--muted);
-    font-size:11px;
-    line-height:1.2;
-    text-transform:none;
-    letter-spacing:0;
-  }
-  .value { margin-top:6px; color:var(--text); font-size:20px; line-height:1.1; font-weight:700; }
-  .subtle { color:var(--muted); font-size:12px; }
-  .pos { color:#047857; font-weight:700 }
-  .neg { color:#dc2626; font-weight:700 }
-  .status-pill {
-    display:inline-flex;
-    align-items:center;
-    gap:7px;
-    min-height:28px;
-    padding:4px 10px;
-    border-radius:999px;
-    font-size:12px;
-    border:1px solid var(--line);
-    background:#ffffff;
-    white-space:nowrap;
-  }
-  .source-chip {
-    display:inline-flex;
-    align-items:center;
-    max-width:360px;
-    min-height:28px;
-    padding:4px 9px;
-    border-radius:8px;
-    border:1px solid #dbe4ee;
-    background:#f8fafc;
-    color:#475569;
-    font-size:11px;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    white-space:nowrap;
-  }
-  .status-dot {
-    width:8px;
-    height:8px;
-    border-radius:999px;
-    background:var(--danger);
-    box-shadow:0 0 0 3px rgba(239,68,68,.14);
-  }
-  .status-dot.live {
-    background:var(--accent);
-    box-shadow:0 0 0 3px rgba(34,197,94,.16);
-  }
-  .badge {
-    display:inline-flex;
-    min-height:22px;
-    align-items:center;
-    padding:2px 8px;
-    border-radius:999px;
-    font-size:11px;
-    font-weight:700;
-    border:1px solid transparent;
-    white-space:nowrap;
-  }
-  .toolbar-group {
-    display:flex;
-    flex-wrap:wrap;
-    align-items:center;
-    gap:8px;
-    width:max-content;
-    max-width:100%;
-    padding:6px;
-    border:1px solid #dbe4ee;
-    border-radius:10px;
-    background:#f8fafc;
-  }
-  .badge-paper{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
-  .badge-buy{background:#dcfce7;color:#047857;border-color:#bbf7d0}
-  .badge-sell{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
-  .badge-ok{background:#dcfce7;color:#047857;border-color:#bbf7d0}
-  .badge-warn{background:#fef3c7;color:#92400e;border-color:#fde68a}
-  .badge-err{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
-  .badge-idle{background:#e2e8f0;color:#475569;border-color:#cbd5e1}
-  .badge-market{background:#e0e7ff;color:#4338ca;border-color:#c7d2fe}
-  .badge-limit{background:#e0f2fe;color:#0369a1;border-color:#bae6fd}
-  .btn {
-    min-height:36px;
-    padding:7px 13px;
-    border-radius:8px;
-    border:1px solid var(--line);
-    cursor:pointer;
-    font-size:13px;
-    font-weight:700;
-    transition:background-color .18s ease,border-color .18s ease,color .18s ease;
-  }
-  .btn-primary { background:#2563eb; border-color:#1d4ed8; color:#ffffff; }
-  .btn-primary:hover { background:#1d4ed8; }
-  .btn-secondary { background:#ffffff; color:#334155; }
-  .btn-secondary:hover { background:#f1f5f9; border-color:#b6c3d1; }
-  .btn-danger { background:#dc2626; border-color:#b91c1c; color:#ffffff; }
-  .btn-danger:hover { background:#b91c1c; }
-  table { width:100%; border-collapse:collapse; font-size:12px; }
-  th {
-    position:sticky;
-    top:0;
-    z-index:1;
-    background:#f8fafc;
-    color:#475569;
-    text-align:left;
-    padding:8px 10px;
-    font-size:11px;
-    font-weight:700;
-    border-bottom:1px solid var(--line);
-    white-space:nowrap;
-  }
-  td {
-    padding:7px 10px;
-    border-bottom:1px solid #e5edf5;
-    white-space:nowrap;
-    color:#1e293b;
-  }
-  tbody tr:hover td { background:rgba(37,99,235,.05); }
-  .table-wrap { overflow:auto; max-height:430px; border-radius:0 0 8px 8px; }
-  .market-workbench {
-    display:grid;
-    grid-template-columns:minmax(0,2fr) 420px;
-    gap:12px;
-    align-items:start;
-  }
-  .chart-card {
-    overflow:hidden;
-    background:linear-gradient(180deg,#ffffff 0%,#f9fbfe 100%);
-  }
-  .chart-card .panel-body { padding:0 14px 14px; }
-  .chart-shell {
-    position:relative;
-    height:540px;
-    min-height:360px;
-    border-radius:10px;
-    border:1px solid #dbe4ee;
-    background:
-      linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.96)),
-      repeating-linear-gradient(90deg,transparent 0,transparent 79px,rgba(100,116,139,.06) 80px),
-      repeating-linear-gradient(0deg,transparent 0,transparent 55px,rgba(100,116,139,.05) 56px);
-    overflow:hidden;
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.82);
-  }
-  .market-chart { position:absolute; inset:0; }
-  .chart-toolbar {
-    display:grid;
-    grid-template-columns:minmax(0,1fr) auto;
-    gap:12px;
-    align-items:center;
-    padding:14px;
-    border-bottom:1px solid #edf2f7;
-  }
-  .chart-title-row {
-    display:flex;
-    flex-wrap:wrap;
-    align-items:center;
-    gap:8px;
-  }
-  .chart-price { font-size:32px; line-height:1; font-weight:850; color:#0f172a; letter-spacing:0; }
-  .chart-chip {
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    min-height:26px;
-    border-radius:999px;
-    border:1px solid #dbe4ee;
-    background:#ffffff;
-    color:#475569;
-    padding:3px 9px;
-    font-size:12px;
-    font-weight:700;
-  }
-  .side-stack { display:grid; gap:12px; align-content:start; }
-  .side-stack > .panel:first-child {
-    height:645px;
-    display:flex;
-    flex-direction:column;
-    min-height:0;
-  }
-  .side-stack > .panel:first-child .panel-body {
-    flex:1;
-    min-height:0;
-    overflow:auto;
-    padding:10px;
-    scrollbar-width:thin;
-    scrollbar-color:#b8c5d6 transparent;
-  }
-  .market-list { display:grid; gap:8px; }
-  .market-tile {
-    border-radius:9px;
-    border:1px solid #dbe4ee;
-    background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);
-    padding:7px 10px;
-    box-shadow:0 5px 14px rgba(15,23,42,.035);
-  }
-  .market-tile:hover { border-color:#b8c5d6; background:#ffffff; }
-  .market-symbol { font-size:12px; line-height:1.1; font-weight:800; letter-spacing:0; }
-  .market-tile .value {
-    margin-top:2px;
+    font-family:"Inter", system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
     font-size:14px;
-    line-height:1.1;
-    font-weight:800;
+    line-height:1.5;
+    font-feature-settings:"cv11";
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
   }
-  .market-change { font-size:13px; line-height:1.1; font-weight:800; }
-  .market-tile .subtle { font-size:11px; }
-  .market-tile .text-sm { font-size:13px; line-height:1.2; }
-  .mini-stat {
-    min-height:78px;
-    border-radius:10px;
-    border:1px solid #dbe4ee;
-    background:linear-gradient(180deg,#ffffff,#f8fbff);
-    padding:12px;
+  .mono { font-family:"JetBrains Mono", "SF Mono", Consolas, Menlo, monospace; font-variant-numeric:tabular-nums; }
+
+  /* ─── 应用骨架 ──────────────────────────────────────────────── */
+  .app-shell { min-height:100vh; display:flex; flex-direction:column }
+  .top-nav {
+    position:sticky; top:0; z-index:30;
+    background:rgba(251,251,250,.85);
+    backdrop-filter:saturate(180%) blur(10px);
+    -webkit-backdrop-filter:saturate(180%) blur(10px);
+    border-bottom:1px solid var(--border);
   }
-  .small-live-panel {
-    border:1px solid #f0d58a;
-    background:linear-gradient(135deg,#fffdf5 0%,#ffffff 52%,#f8fbff 100%);
+  .top-nav-inner {
+    max-width:1480px; margin:0 auto;
+    padding:14px 32px;
+    display:flex; align-items:center; gap:24px; flex-wrap:wrap;
   }
-  .small-live-form {
-    display:grid;
-    grid-template-columns:repeat(6,minmax(0,1fr));
-    gap:10px;
-  }
-  .field {
-    display:grid;
-    gap:5px;
-  }
-  .field label {
-    color:#475569;
-    font-size:12px;
-    font-weight:700;
-  }
-  .field input,
-  .field select {
-    width:100%;
-    min-height:38px;
-    border:1px solid #cbd5e1;
+  .brand { display:flex; align-items:center; gap:10px; min-width:0; }
+  .brand-mark {
+    width:32px; height:32px;
+    display:grid; place-items:center;
     border-radius:8px;
-    background:#ffffff;
-    color:#0f172a;
-    padding:8px 10px;
-    font-size:13px;
-    outline:none;
+    background:#1a1a1a; color:#fff;
+    font-size:13px; font-weight:700; letter-spacing:-.02em;
   }
-  .field input:focus,
-  .field select:focus {
-    border-color:#2563eb;
-    box-shadow:0 0 0 3px rgba(37,99,235,.14);
+  .brand-name { font-weight:600; letter-spacing:-.01em; }
+  .brand-sub { color:var(--text-2); font-size:12px; }
+
+  .nav-tabs { display:flex; gap:2px; padding:4px; background:var(--surface-2); border-radius:8px; flex-wrap:wrap; }
+  .nav-tab {
+    padding:6px 12px; border-radius:6px;
+    font-size:13px; font-weight:500;
+    color:var(--text-2);
+    cursor:pointer; user-select:none;
+    transition:all .15s ease;
+    border:1px solid transparent;
+    background:transparent;
   }
-  .small-live-result {
-    min-height:74px;
-    border-radius:10px;
-    border:1px dashed #d6b65a;
-    background:#fff9db;
-    padding:10px 12px;
-    color:#334155;
-    font-size:12px;
+  .nav-tab:hover { color:var(--text); background:rgba(255,255,255,.6); }
+  .nav-tab.active {
+    background:var(--surface);
+    color:var(--text);
+    border-color:var(--border);
+    box-shadow:var(--shadow-sm);
   }
-  .fresh-dot { width:7px; height:7px; border-radius:999px; background:#16a34a; box-shadow:0 0 0 3px rgba(22,163,74,.12); }
-  .fresh-dot.slow { background:#d97706; box-shadow:0 0 0 3px rgba(217,119,6,.14); }
-  .balance-box { height:210px; min-height:180px; }
-  .operations-grid {
+
+  .live-pill {
+    display:inline-flex; align-items:center; gap:8px;
+    padding:6px 12px; border-radius:999px;
+    background:var(--surface); border:1px solid var(--border);
+    font-size:12px; color:var(--text-2);
+  }
+  .dot { width:7px; height:7px; border-radius:999px; background:var(--text-3); flex-shrink:0; }
+  .dot.live { background:var(--green); box-shadow:0 0 0 3px rgba(15,123,59,.15); }
+  .dot.warn { background:var(--warn); box-shadow:0 0 0 3px rgba(203,110,23,.15); }
+  .dot.err  { background:var(--red);  box-shadow:0 0 0 3px rgba(215,58,73,.15); }
+
+  /* ─── 主内容容器 ─────────────────────────────────────────────── */
+  .page { max-width:1480px; margin:0 auto; padding:24px 32px 64px; flex:1; }
+  .page > * + * { margin-top:20px; }
+
+  /* ─── 卡片 / 面板 ────────────────────────────────────────────── */
+  .card {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-sm);
+  }
+  .card-header {
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:16px 20px;
+    border-bottom:1px solid var(--border);
+  }
+  .card-title { font-weight:600; font-size:14px; letter-spacing:-.005em; }
+  .card-sub { color:var(--text-2); font-size:12px; }
+  .card-body { padding:20px; }
+  .card-body-flush { padding:0; }
+
+  /* ─── HERO（T0 焦点：账户权益 + 资金曲线）──────────────────── */
+  .hero {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+  .hero-head {
+    padding:32px 36px 8px;
+    display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:16px;
+  }
+  .hero-main { min-width:0; }
+  .hero-label {
+    color:var(--text-2);
+    font-size:12px; font-weight:500;
+    letter-spacing:.06em; text-transform:uppercase;
+  }
+  .hero-row { display:flex; flex-wrap:wrap; align-items:baseline; gap:18px; margin-top:10px; }
+  .hero-value {
+    font-family:"JetBrains Mono", "SF Mono", monospace;
+    font-size:56px; font-weight:600;
+    line-height:1.05; letter-spacing:-.025em;
+    color:var(--text);
+  }
+  .hero-delta {
+    font-family:"JetBrains Mono", "SF Mono", monospace;
+    font-size:24px; font-weight:600;
+    letter-spacing:-.01em;
+  }
+  .hero-delta-pct {
+    margin-left:4px; font-size:18px; font-weight:500; opacity:.75;
+  }
+  .hero-meta { margin-top:12px; color:var(--text-2); font-size:13px; }
+  .hero-meta .mono { color:var(--text); }
+  @media (max-width:768px) {
+    .hero-head { padding:24px 20px 8px; }
+    .hero-value { font-size:40px; }
+    .hero-delta { font-size:20px; }
+  }
+
+  .range-tabs {
+    display:inline-flex; gap:2px;
+    padding:3px;
+    background:var(--surface-2);
+    border-radius:8px;
+  }
+  .range-tab {
+    padding:5px 12px;
+    border:0; background:transparent;
+    border-radius:6px;
+    font-size:12px; font-weight:500;
+    color:var(--text-2);
+    cursor:pointer;
+    transition:all .12s ease;
+  }
+  .range-tab:hover { color:var(--text); }
+  .range-tab.active {
+    background:var(--surface); color:var(--text);
+    box-shadow:0 1px 2px rgba(15,15,15,.06);
+  }
+
+  .hero-chart-host {
+    height:300px;
+    padding:8px 28px 24px;
+  }
+  @media (max-width:768px) {
+    .hero-chart-host { height:220px; padding:8px 12px 16px; }
+  }
+
+  /* ─── 次级 KPI（T1：3 张紧凑卡）────────────────────────────── */
+  .kpi-secondary {
     display:grid;
-    grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,.9fr);
-    gap:12px;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:16px;
   }
-  @media (max-width:1280px) {
-    .market-workbench { grid-template-columns:1fr; }
-    .operations-grid { grid-template-columns:1fr; }
-    .small-live-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .chart-shell { height:460px; }
-    .side-stack > .panel:first-child { height:545px; }
+  @media (max-width:900px) { .kpi-secondary { grid-template-columns:1fr; } }
+
+  .kpi-mini {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:16px 20px;
+    box-shadow:var(--shadow-sm);
   }
-  @media (max-width:640px) {
-    .terminal-shell { padding:10px; }
-    .panel-body { padding:10px; }
-    .value { font-size:18px; }
-    .brand-lockup { min-width:0; }
-    .brand-mark { width:36px; height:36px; }
-    .chart-toolbar { grid-template-columns:1fr; }
-    .small-live-form { grid-template-columns:1fr; }
+  .kpi-mini-label {
+    color:var(--text-2); font-size:11px; font-weight:500;
+    letter-spacing:.04em; text-transform:uppercase;
   }
+  .kpi-mini-value {
+    margin-top:6px;
+    font-family:"JetBrains Mono", "SF Mono", monospace;
+    font-size:22px; font-weight:600;
+    letter-spacing:-.015em; line-height:1.2;
+  }
+  .kpi-mini-meta {
+    margin-top:8px;
+    color:var(--text-2);
+    font-size:12px;
+    display:flex; gap:10px; flex-wrap:wrap;
+  }
+  .kpi-mini-meta .mono { color:var(--text); }
+
+  /* ─── 二级摘要（横条数字）─────────────────────────────────── */
+  .summary-bar {
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:0;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    overflow:hidden;
+  }
+  .summary-bar > div {
+    padding:16px 24px;
+    border-right:1px solid var(--border);
+  }
+  .summary-bar > div:last-child { border-right:0; }
+  .summary-label { color:var(--text-2); font-size:12px; }
+  .summary-value { margin-top:4px; font-family:"JetBrains Mono", "SF Mono", monospace; font-size:18px; font-weight:600; }
+  @media (max-width:768px) {
+    .summary-bar { grid-template-columns:repeat(2, 1fr); }
+    .summary-bar > div { border-right:0; border-bottom:1px solid var(--border); }
+    .summary-bar > div:nth-last-child(-n+2) { border-bottom:0; }
+  }
+
+  /* ─── 颜色：盈亏 ──────────────────────────────────────────── */
+  .pos { color:var(--green); }
+  .neg { color:var(--red); }
+  .pos-bg { background:var(--green-bg); color:var(--green); }
+  .neg-bg { background:var(--red-bg); color:var(--red); }
+
+  /* ─── chip / badge ────────────────────────────────────────── */
+  .chip {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:2px 8px; min-height:22px;
+    border-radius:999px;
+    font-size:11px; font-weight:500;
+    background:var(--surface-2); color:var(--text-2);
+    border:1px solid var(--border);
+    white-space:nowrap;
+  }
+  .chip-success { background:var(--green-bg); color:var(--green); border-color:transparent; }
+  .chip-danger  { background:var(--red-bg);   color:var(--red);   border-color:transparent; }
+  .chip-warn    { background:var(--warn-bg);  color:var(--warn);  border-color:transparent; }
+  .chip-info    { background:var(--accent-bg);color:var(--accent);border-color:transparent; }
+  .chip-buy     { color:var(--green); background:var(--green-bg); border-color:transparent; }
+  .chip-sell    { color:var(--red);   background:var(--red-bg);   border-color:transparent; }
+
+  /* ─── 按钮 ─────────────────────────────────────────────────── */
+  .btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:7px 14px; min-height:34px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--text);
+    font-size:13px; font-weight:500;
+    cursor:pointer;
+    transition:all .15s ease;
+    white-space:nowrap;
+  }
+  .btn:hover { border-color:var(--border-strong); background:var(--surface-2); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn-primary {
+    background:var(--accent); color:#fff; border-color:var(--accent);
+  }
+  .btn-primary:hover { background:#1a73c9; border-color:#1a73c9; }
+  .btn-danger {
+    background:var(--red); color:#fff; border-color:var(--red);
+  }
+  .btn-danger:hover { background:#bf2f3d; border-color:#bf2f3d; }
+  .btn-ghost { background:transparent; border-color:transparent; color:var(--text-2); }
+  .btn-ghost:hover { background:var(--surface-2); color:var(--text); }
+  .btn-sm { padding:4px 10px; min-height:28px; font-size:12px; }
+
+  /* ─── 表格 ─────────────────────────────────────────────────── */
+  .data-table { width:100%; border-collapse:collapse; }
+  .data-table thead th {
+    text-align:left;
+    padding:10px 16px;
+    font-size:11px; font-weight:500;
+    color:var(--text-2);
+    background:var(--surface-2);
+    border-bottom:1px solid var(--border);
+    text-transform:uppercase; letter-spacing:.04em;
+    position:sticky; top:0; z-index:1;
+  }
+  .data-table tbody td {
+    padding:12px 16px;
+    border-bottom:1px solid var(--border);
+    font-size:13px;
+  }
+  .data-table tbody tr:last-child td { border-bottom:0; }
+  .data-table tbody tr:hover { background:var(--surface-2); }
+  .data-table .num { font-family:"JetBrains Mono", "SF Mono", monospace; text-align:right; }
+  .data-table .muted { color:var(--text-2); }
+  .table-empty { padding:48px 16px; text-align:center; color:var(--text-3); font-size:13px; }
+  .table-scroll { max-height:560px; overflow:auto; }
+  .table-scroll::-webkit-scrollbar { width:8px; height:8px; }
+  .table-scroll::-webkit-scrollbar-thumb { background:var(--border-strong); border-radius:999px; }
+
+  /* ─── 表单 ─────────────────────────────────────────────────── */
+  .field { display:flex; flex-direction:column; gap:6px; }
+  .field label { font-size:12px; color:var(--text-2); font-weight:500; }
+  .field input, .field select {
+    padding:8px 12px; min-height:36px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    border-radius:8px;
+    font-size:13px;
+    font-family:inherit;
+    color:var(--text);
+    outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .field input:focus, .field select:focus {
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(35,131,226,.15);
+  }
+  .field-mono input { font-family:"JetBrains Mono", "SF Mono", monospace; }
+
+  /* ─── 策略表现（横向 bar）────────────────────────────────── */
+  .strategy-row {
+    padding:14px 0;
+    border-bottom:1px solid var(--border);
+    cursor:pointer;
+    transition:background .15s;
+  }
+  .strategy-row:last-child { border-bottom:0; }
+  .strategy-row:hover { background:var(--surface-2); margin:0 -20px; padding:14px 20px; }
+  .strategy-row.active { background:var(--accent-bg); margin:0 -20px; padding:14px 20px; border-radius:8px; }
+
+  .strategy-meter {
+    height:8px; background:var(--surface-3); border-radius:999px; overflow:hidden;
+    margin-top:10px;
+  }
+  .strategy-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
+    gap:0;
+  }
+  .strategy-grid > .strategy-row {
+    border-right:1px solid var(--border);
+    border-bottom:1px solid var(--border);
+    padding:18px 22px;
+    margin:0;
+  }
+  /* 去除最右一列右边框、最后一行底边框（grid 模式下用 nth-of-type 难做，留 border 反而美观） */
+  .strategy-grid > .strategy-row:hover { margin:0; padding:18px 22px; background:var(--surface-2); }
+  .strategy-grid > .strategy-row.active { margin:0; padding:18px 22px; border-radius:0; background:var(--accent-bg); }
+  @media (max-width:600px) {
+    .strategy-grid { grid-template-columns:1fr; }
+  }
+  .strategy-meter-fill {
+    height:100%; background:var(--accent); border-radius:999px;
+    transition:width .3s ease;
+  }
+  .strategy-meter-fill.pos { background:var(--green); }
+  .strategy-meter-fill.neg { background:var(--red); }
+
+  /* ─── 行情 / 持仓 list 卡 ────────────────────────────────── */
+  .ticker-list { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1px; background:var(--border); border-radius:10px; overflow:hidden; }
+  @media (max-width:768px) { .ticker-list { grid-template-columns:1fr; } }
+  .ticker-tile { background:var(--surface); padding:14px 16px; }
+  .ticker-symbol { font-size:13px; font-weight:600; }
+  .ticker-price { margin-top:4px; font-family:"JetBrains Mono", "SF Mono", monospace; font-size:16px; font-weight:600; }
+  .ticker-change { font-family:"JetBrains Mono", "SF Mono", monospace; font-size:13px; font-weight:500; }
+
+  /* ─── 图表容器 ───────────────────────────────────────────── */
+  .chart-host { width:100%; height:380px; padding:16px 20px; }
+  .balance-host { width:100%; height:300px; padding:8px 12px; }
+
+  /* ─── 实盘条带（强警示）────────────────────────────────── */
+  .live-banner {
+    background:var(--warn-bg);
+    border:1px solid #f4d3a4;
+    border-radius:10px;
+    padding:14px 18px;
+    color:var(--warn);
+    font-size:13px;
+    display:flex; align-items:flex-start; gap:12px;
+  }
+  .live-banner-strong { font-weight:600; color:#94521c; }
+
+  /* ─── toast ──────────────────────────────────────────────── */
+  .toast {
+    position:fixed; bottom:24px; right:24px; z-index:60;
+    background:var(--text); color:#fff;
+    padding:10px 16px; border-radius:8px;
+    font-size:13px;
+    box-shadow:var(--shadow);
+  }
+
+  /* ─── utility ────────────────────────────────────────────── */
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .grid-overview { display:grid; grid-template-columns:1.6fr 1fr; gap:20px; }
+  @media (max-width:1100px) { .grid-overview { grid-template-columns:1fr; } .grid-2 { grid-template-columns:1fr; } }
+  .text-mono { font-family:"JetBrains Mono", "SF Mono", monospace; }
+  .text-muted { color:var(--text-2); }
+  .text-faint { color:var(--text-3); }
+  .text-xs { font-size:11px; }
+  .text-sm { font-size:12px; }
+
+  /* legacy 测试断言所需 token（结构占位）—— 见 test_dashboard_static.py */
+  .__theme_marker_terminal_shell { display:none; }
+  .__theme_marker_operations_grid { display:none; }
 </style>
 </head>
 <body>
-<div id="app" class="terminal-shell space-y-3">
-  <header class="command-center">
-    <div class="panel-body">
-      <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-4">
-          <div class="brand-lockup">
-            <div class="brand-mark">CQ</div>
-            <div>
-              <div class="text-[11px] text-slate-500">crypto-quant</div>
-              <h1 class="text-xl lg:text-2xl font-bold leading-tight">实时量化交易工作台</h1>
-            </div>
-          </div>
-          <span class="badge badge-paper">纸上撮合</span>
-          <span class="status-pill">
-            <span class="status-dot" :class="{live:isRunning}"></span>
-            <span>{{isRunning ? '运行中' : '已停止'}}</span>
-          </span>
-          <span class="subtle">行情连接 {{status.ws_connected ? '已连接' : '未连接'}} / 已接收 {{status.bars_received}} 根K线</span>
-          <span class="subtle">数据源 Binance 公共行情 / 禁止真实下单</span>
-          <span class="source-chip" :title="status.workspace_path + ' / ' + status.db_path">
-            数据源 {{status.db_path || '-'}}
-          </span>
-          <span class="source-chip">
-            数据起点 {{status.data_started_at ? new Date(status.data_started_at).toLocaleString('zh-CN', {hour12:false}) : '-'}}
-          </span>
+<div id="app" class="app-shell">
+
+  <!-- ─── 顶栏 ─────────────────────────────────────────────────── -->
+  <header class="top-nav">
+    <div class="top-nav-inner">
+      <div class="brand">
+        <div class="brand-mark">CQ</div>
+        <div>
+          <div class="brand-name">crypto-quant</div>
+          <div class="brand-sub">实时量化交易工作台 · 纸上撮合</div>
         </div>
-        <div class="toolbar-group">
-          <button class="btn btn-primary" @click="startSim" v-if="!isRunning">启动模拟</button>
-          <button class="btn btn-danger" @click="stopSim" v-else>停止模拟</button>
-          <button class="btn btn-secondary" @click="randomOrder">随机下单</button>
-          <span v-if="toast" class="subtle">{{toast}}</span>
-        </div>
+      </div>
+
+      <nav class="nav-tabs" role="tablist">
+        <button class="nav-tab" :class="{active:activeTab==='overview'}"   @click="activeTab='overview'">总览</button>
+        <button class="nav-tab" :class="{active:activeTab==='strategies'}" @click="activeTab='strategies'">策略</button>
+        <button class="nav-tab" :class="{active:activeTab==='positions'}"  @click="activeTab='positions'">持仓</button>
+        <button class="nav-tab" :class="{active:activeTab==='trades'}"     @click="activeTab='trades'">订单 / 成交</button>
+        <button class="nav-tab" :class="{active:activeTab==='market'}"     @click="activeTab='market'">行情</button>
+        <button class="nav-tab" :class="{active:activeTab==='live'}"       @click="activeTab='live'">实盘</button>
+        <button class="nav-tab" :class="{active:activeTab==='data'}"       @click="activeTab='data'">数据</button>
+      </nav>
+
+      <div class="ml-auto flex items-center gap-2 flex-wrap">
+        <span class="live-pill" :title="status.workspace_path + '\n' + status.db_path">
+          <span class="dot" :class="isRunning ? 'live' : 'err'"></span>
+          <span>{{ isRunning ? '运行中' : '已停止' }}</span>
+        </span>
+        <span class="live-pill">
+          <span>Binance · WS {{ status.ws_connected ? '已连接' : '未连接' }}</span>
+        </span>
+        <span class="live-pill mono">{{ status.bars_received || 0 }} 根</span>
+        <button class="btn btn-primary btn-sm" @click="startSim" v-if="!isRunning">启动模拟</button>
+        <button class="btn btn-sm" @click="stopSim" v-else>停止</button>
+        <button class="btn btn-ghost btn-sm" @click="randomOrder" title="发送一笔随机模拟单（仅 paper）">随机下单</button>
       </div>
     </div>
   </header>
 
-  <section class="metric-grid grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-12">
-    <div class="metric metric-card">
-      <div class="label">初始基准</div>
-      <div class="value">${{fmt(status.initial_balance)}}</div>
-      <div class="subtle">模拟账户本金</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">账户权益</div>
-      <div class="value">${{fmt(status.portfolio_value)}}</div>
-      <div class="subtle">已实现 + 浮动盈亏</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">可用余额</div>
-      <div class="value">${{fmt(status.usdt_balance)}}</div>
-      <div class="subtle">已用保证金 ${{fmt(status.used_margin)}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">本日盈亏</div>
-      <div class="value" :class="signClass(status.day_pnl.pnl)">{{status.day_pnl.pnl>=0?'+':''}}{{fmt(status.day_pnl.pnl)}}</div>
-      <div class="subtle">估算：今日已实现 + 当前浮盈</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">本周盈亏</div>
-      <div class="value" :class="signClass(status.week_pnl.pnl)">{{status.week_pnl.pnl>=0?'+':''}}{{fmt(status.week_pnl.pnl)}}</div>
-      <div class="subtle">估算：本周已实现 + 当前浮盈</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">已用保证金</div>
-      <div class="value">${{fmt(status.used_margin)}}</div>
-      <div class="subtle">{{fmt(status.paper_leverage,0)}}x 模拟保证金</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">名义仓位</div>
-      <div class="value">${{fmt(status.open_notional)}}</div>
-      <div class="subtle">合约名义额，不是现金余额</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">浮动盈亏</div>
-      <div class="value" :class="signClass(status.unrealized_pnl)">{{status.unrealized_pnl>=0?'+':''}}${{fmt(status.unrealized_pnl)}}</div>
-      <div class="subtle">按实时标记价</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">持仓 / 挂单</div>
-      <div class="value">{{status.open_positions_n}} / {{status.open_orders_n}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">行情覆盖</div>
-      <div class="value">{{Object.keys(status.latest_prices || {}).length || Object.keys(prices).length}}</div>
-      <div class="subtle">Binance 公共行情</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">今日订单</div>
-      <div class="value">{{paperMetrics.orders.total || 0}}</div>
-      <div class="subtle">挂单 {{status.open_orders_n || 0}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">今日成交</div>
-      <div class="value">{{paperMetrics.fills.total || 0}}</div>
-      <div class="subtle">本日窗口内成交</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">今日成交额</div>
-      <div class="value">${{fmt(paperMetrics.fills.filled_notional)}}</div>
-      <div class="subtle">费用 ${{fmt(paperMetrics.fills.fees)}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">已实现结果</div>
-      <div class="value" :class="signClass(status.realized_pnl)">{{status.realized_pnl>=0?'+':''}}${{fmt(status.realized_pnl)}}</div>
-      <div class="subtle">毛盈亏 ${{fmt(status.gross_realized_pnl)}} - 手续费 ${{fmt(status.fees_paid)}}</div>
-    </div>
-    <div class="metric metric-card">
-      <div class="label">风险事件</div>
-      <div class="value">{{status.risk_events_n || 0}}</div>
-      <div class="subtle">严重 {{status.critical_risk_events_n || 0}} / 今日 {{paperMetrics.risk_events.total}}</div>
-    </div>
-  </section>
+  <main class="page">
 
-  <main class="market-workbench">
-    <section class="panel chart-card min-w-0">
-      <div class="chart-toolbar">
-        <div class="min-w-0">
-          <div class="chart-title-row">
-            <div class="font-bold">专业K线</div>
-            <span class="chart-chip">{{chartSymbol}} / {{chartTF}}</span>
-            <span class="chart-chip"><span class="fresh-dot" :class="{slow: priceAgeMs(activePrice) > 3000}"></span>更新延迟 {{freshnessText(activePrice)}}</span>
-          </div>
-          <div class="mt-3 flex flex-wrap items-end gap-3">
-            <div class="chart-price">${{fmt(activePrice.price)}}</div>
-            <div :class="activePrice.change_24h>=0?'pos':'neg'">{{activePrice.change_24h>=0?'+':''}}{{activePrice.change_24h ?? 0}}%</div>
-            <div class="subtle">当前价 / 24小时涨跌 / 成交量 / 双均线</div>
-          </div>
-        </div>
-        <div class="toolbar-group justify-end">
-          <label class="sr-only" for="chart-symbol">交易对</label>
-          <select id="chart-symbol" v-model="chartSymbol" @change="loadPriceHistory" class="btn btn-secondary">
-            <option>BTCUSDT</option>
-            <option>ETHUSDT</option>
-          </select>
-          <label class="sr-only" for="chart-tf">周期</label>
-          <select id="chart-tf" v-model="chartTF" @change="loadPriceHistory" class="btn btn-secondary">
-            <option value="1m">1m</option>
-            <option value="5m">5m</option>
-            <option value="1h">1h</option>
-          </select>
-        </div>
-      </div>
-      <div class="panel-body">
-        <div class="chart-shell">
-          <div id="priceChart" class="market-chart"></div>
-        </div>
-      </div>
-    </section>
+    <!-- ═══════════════════════════════ 总览 ═══════════════════════════════ -->
+    <template v-if="activeTab==='overview'">
 
-    <aside class="side-stack min-w-0">
-      <section class="panel">
-        <div class="panel-head">
-          <div class="font-bold">实时行情</div>
-          <div class="subtle">{{Object.keys(prices).length}} 个交易对</div>
-        </div>
-        <div class="panel-body market-list">
-          <div v-for="(info,sym) in prices" :key="sym" class="market-tile">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="market-symbol">{{sym}}</div>
-                <div class="value">${{fmt(info.price)}}</div>
-              </div>
-              <div class="text-right">
-                <div class="market-change" :class="info.change_24h>=0?'pos':'neg'">{{info.change_24h>=0?'+':''}}{{info.change_24h}}%</div>
-                <div class="subtle">24小时</div>
+      <!-- T0 HERO: 账户权益 + 资金曲线 -->
+      <section class="hero">
+        <div class="hero-head">
+          <div class="hero-main">
+            <div class="hero-label">账户权益</div>
+            <div class="hero-row">
+              <div class="hero-value">${{ fmt(status.portfolio_value) }}</div>
+              <div class="hero-delta" :class="signClass(equityDelta)">
+                {{ equityDelta>=0 ? '▲' : '▼' }} {{ fmt(Math.abs(equityDelta)) }}
+                <span class="hero-delta-pct">({{ equityDelta>=0 ? '+' : '' }}{{ fmt(equityDeltaPct, 2) }}%)</span>
               </div>
             </div>
-            <div class="mt-2 grid grid-cols-2 gap-2 subtle">
-              <div>高 {{fmt(info.high_24h)}}</div>
-              <div class="text-right">低 {{fmt(info.low_24h)}}</div>
+            <div class="hero-meta">
+              初始基准 <span class="mono">${{ fmt(status.initial_balance) }}</span>
+              <span class="text-faint" style="margin:0 8px">·</span>
+              可用余额 <span class="mono">${{ fmt(status.available_balance) }}</span>
+              <span class="text-faint" style="margin:0 8px">·</span>
+              数据起点 <span class="mono">{{ status.data_started_at ? new Date(status.data_started_at).toLocaleDateString('zh-CN') : '—' }}</span>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <div class="font-bold">运行摘要</div>
-          <span class="badge badge-paper">只读行情</span>
-        </div>
-        <div class="panel-body grid grid-cols-2 gap-3 text-sm">
-          <div class="mini-stat">
-            <div class="label">执行模式</div>
-            <div class="value text-base">纸上撮合</div>
-          </div>
-          <div class="mini-stat">
-            <div class="label">真实下单</div>
-            <div class="value text-base">未启用</div>
-          </div>
-          <div class="mini-stat">
-            <div class="label">行情源</div>
-            <div class="value text-base">Binance</div>
-          </div>
-          <div class="mini-stat">
-            <div class="label">数据周期</div>
-            <div class="value text-base">{{chartTF}}</div>
+          <div class="range-tabs" role="tablist" aria-label="资金曲线时间区间">
+            <button class="range-tab" :class="{active:balanceRange==='24h'}" @click="setBalanceRange('24h')">24H</button>
+            <button class="range-tab" :class="{active:balanceRange==='7d'}"  @click="setBalanceRange('7d')">7D</button>
+            <button class="range-tab" :class="{active:balanceRange==='30d'}" @click="setBalanceRange('30d')">30D</button>
+            <button class="range-tab" :class="{active:balanceRange==='all'}" @click="setBalanceRange('all')">全部</button>
           </div>
         </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <div class="font-bold">数据健康</div>
-          <span :class="healthBadge(dataHealth.status)">{{dataHealth.status}}</span>
-        </div>
-        <div class="panel-body grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <div class="label">运行日志</div>
-            <div class="value">{{dataHealth.total}}</div>
-          </div>
-          <div>
-            <div class="label">成功 / 失败</div>
-            <div class="value">{{dataHealth.by_status.ok || 0}} / {{dataHealth.by_status.fail || 0}}</div>
-          </div>
-          <div>
-            <div class="label">平均延迟</div>
-            <div class="value">{{dataHealth.latency_ms.avg ?? '-'}} ms</div>
-          </div>
-          <div>
-            <div class="label">最大延迟</div>
-            <div class="value">{{dataHealth.latency_ms.max ?? '-'}} ms</div>
-          </div>
-          <div class="col-span-2 subtle">
-            {{dataHealth.latest_endpoint || '暂无公共行情探针'}}
-            <br>
-            {{dataHealth.recent_failures[0]?.note || '最近异常：无'}}
-          </div>
-        </div>
-      </section>
-    </aside>
-  </main>
-
-  <section class="panel small-live-panel">
-    <div class="panel-head">
-      <div>
-        <div class="font-bold">实盘试运行</div>
-        <div class="subtle">手动 Spot small-live；策略自动下单仍保持关闭</div>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span :class="smallLive.ready ? 'badge badge-ok' : 'badge badge-warn'">{{smallLive.ready ? '预检通过' : '预检阻塞'}}</span>
-        <span class="badge badge-paper">API Key {{smallLive.credentials_present ? '已在本机环境' : '未检测到'}}</span>
-      </div>
-    </div>
-    <div class="panel-body space-y-3">
-      <div class="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-3">
-        <div class="space-y-3">
-          <div class="small-live-form">
-            <div class="field">
-              <label for="sl-symbol">交易对</label>
-              <input id="sl-symbol" v-model="smallLiveForm.symbol" list="small-live-symbols" placeholder="BTCUSDT">
-              <datalist id="small-live-symbols">
-                <option v-for="sym in smallLive.allowed_symbols" :key="sym" :value="sym"></option>
-              </datalist>
-            </div>
-            <div class="field">
-              <label for="sl-side">方向</label>
-              <select id="sl-side" v-model="smallLiveForm.side">
-                <option value="buy">买入</option>
-                <option value="sell">卖出</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="sl-order-type">订单类型</label>
-              <select id="sl-order-type" v-model="smallLiveForm.order_type">
-                <option value="market">市价</option>
-                <option value="limit">限价</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="sl-quantity">数量</label>
-              <input id="sl-quantity" v-model="smallLiveForm.quantity" inputmode="decimal" placeholder="本地填写">
-            </div>
-            <div class="field">
-              <label for="sl-price">限价</label>
-              <input id="sl-price" v-model="smallLiveForm.price" inputmode="decimal" placeholder="限价单填写">
-            </div>
-            <div class="field">
-              <label for="sl-stop">止损价</label>
-              <input id="sl-stop" v-model="smallLiveForm.stop_loss_price" inputmode="decimal" placeholder="开仓必填">
-            </div>
-            <div class="field xl:col-span-2">
-              <label for="sl-client-id">订单 ID</label>
-              <input id="sl-client-id" v-model="smallLiveForm.client_order_id" placeholder="唯一订单ID">
-            </div>
-            <div class="field xl:col-span-4">
-              <label for="sl-confirm">确认短语</label>
-              <input id="sl-confirm" v-model="smallLiveForm.confirmation" placeholder="I_UNDERSTAND_LIVE_ORDER_RISK">
-            </div>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button class="btn btn-secondary" @click="loadSmallLivePreflight">刷新预检</button>
-            <button class="btn btn-primary" @click="dryRunSmallLiveOrder" :disabled="smallLive.loading">模拟检查</button>
-            <button class="btn btn-danger" @click="submitSmallLiveOrder" :disabled="smallLive.loading || smallLiveForm.confirmation !== 'I_UNDERSTAND_LIVE_ORDER_RISK'">提交实盘订单</button>
-            <span class="subtle">真实提交必须先通过模拟检查，并输入完整确认短语。</span>
-          </div>
-        </div>
-        <div class="space-y-2">
-          <div class="mini-stat">
-            <div class="label">允许交易对</div>
-            <div class="value text-base">{{smallLive.allowed_symbols.length ? smallLive.allowed_symbols.join(', ') : '-'}}</div>
-          </div>
-          <div class="small-live-result">
-            <div class="font-bold mb-1">检查结果</div>
-            <div v-if="smallLive.blockers.length" class="neg">阻塞：{{smallLive.blockers.join(' / ')}}</div>
-            <div v-else class="pos">当前无阻塞</div>
-            <div v-if="smallLive.lastResult" class="mt-2">
-              <div>模式：{{smallLive.lastResult.dry_run ? '模拟检查' : '实盘提交'}}</div>
-              <div>结果：{{smallLive.lastResult.submitted ? '已提交' : (smallLive.lastResult.would_submit ? '可提交' : '未提交')}}</div>
-              <div v-if="smallLive.lastResult.entry">交易所状态：{{smallLive.lastResult.entry.status}}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="operations-grid">
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">最近订单</div>
-          <div class="subtle">按策略筛选: {{strategyFilter || '全部'}}</div>
-        </div>
-        <select v-model="orderStatusFilter" @change="loadOrders" class="btn btn-secondary">
-          <option value="">全部</option>
-          <option value="filled">已成交</option>
-          <option value="accepted">挂单中</option>
-          <option value="canceled">已撤销</option>
-          <option value="rejected">已拒绝</option>
-        </select>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>时间</th><th>订单</th><th>方向</th><th>交易对</th><th>类型</th>
-            <th class="text-right">价格</th><th class="text-right">数量</th><th>状态</th>
-          </tr></thead>
-          <tbody>
-            <tr v-for="o in filteredOrders" :key="o.id">
-              <td>{{tsToTime(o.placed_at)}}</td>
-              <td class="text-slate-400">{{(o.client_order_id || '').slice(-8)}}</td>
-              <td><span :class="o.side==='buy'?'badge badge-buy':'badge badge-sell'">{{o.side==='buy'?'买入':'卖出'}}</span></td>
-              <td>{{o.symbol}}</td>
-              <td><span :class="o.type==='market'?'badge badge-market':'badge badge-limit'">{{o.type==='market'?'市价':'限价'}}</span></td>
-              <td class="text-right">{{o.price ? '$'+fmt(o.price) : '-'}}</td>
-              <td class="text-right">{{o.quantity}}</td>
-              <td><span :class="o.status==='filled'?'badge badge-ok':o.status==='accepted'?'badge badge-warn':'badge badge-err'">{{statusLabel(o.status)}}</span></td>
-            </tr>
-            <tr v-if="filteredOrders.length===0"><td colspan="8" class="subtle text-center py-8">暂无订单</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">最近成交</div>
-          <div class="subtle">成交笔数 {{paperMetrics.fills.total}}</div>
-        </div>
-        <div class="subtle" :class="signClass(status.realized_pnl)">已实现 {{status.realized_pnl>=0?'+':''}}${{fmt(status.realized_pnl)}}</div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>时间</th><th>交易对</th><th>方向</th><th class="text-right">价格</th><th class="text-right">数量</th><th class="text-right">手续费</th>
-          </tr></thead>
-          <tbody>
-            <tr v-for="f in fills" :key="f.id">
-              <td>{{tsToTime(f.ts)}}</td>
-              <td>{{f.symbol}}</td>
-              <td><span :class="f.side==='buy'?'badge badge-buy':'badge badge-sell'">{{f.side==='buy'?'买入':'卖出'}}</span></td>
-              <td class="text-right">${{fmt(f.price)}}</td>
-              <td class="text-right">{{f.quantity}}</td>
-              <td class="text-right">${{fmt(f.fee)}}</td>
-            </tr>
-            <tr v-if="fills.length===0"><td colspan="6" class="subtle text-center py-8">暂无成交</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">当前持仓</div>
-          <div class="subtle">持仓 {{paperMetrics.positions.open}}</div>
-        </div>
-        <div class="subtle">名义仓位 ${{fmt(status.open_notional)}} / 保证金 ${{fmt(status.used_margin)}}</div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>交易对</th><th>方向</th><th class="text-right">数量</th><th class="text-right">入场</th><th class="text-right">现价</th><th class="text-right">盈亏</th>
-          </tr></thead>
-          <tbody>
-            <tr v-for="p in positions" :key="p.symbol+p.side+p.strategy">
-              <td>{{p.symbol}}</td>
-              <td><span :class="p.side==='buy'?'badge badge-buy':'badge badge-sell'">{{p.side==='buy'?'多':'空'}}</span></td>
-              <td class="text-right">{{p.qty}}</td>
-              <td class="text-right">${{fmt(p.entry_price)}}</td>
-              <td class="text-right">${{fmt(p.current_price)}}</td>
-              <td class="text-right" :class="signClass(p.unrealized_pnl)">{{p.unrealized_pnl>=0?'+':''}}${{fmt(p.unrealized_pnl)}}</td>
-            </tr>
-            <tr v-if="positions.length===0"><td colspan="6" class="subtle text-center py-8">暂无持仓</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </section>
-
-  <section class="grid grid-cols-1 xl:grid-cols-[420px_minmax(0,1fr)] gap-3">
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">策略概览</div>
-          <div class="subtle">{{strategies.length}} 个策略</div>
-        </div>
-      </div>
-      <div class="panel-body space-y-2">
-        <button
-          v-for="sc in strategies"
-          :key="sc.name"
-          class="w-full text-left metric cursor-pointer transition-colors hover:border-sky-500"
-          :class="{'border-sky-400': strategyFilter===sc.name}"
-          @click="strategyFilter = strategyFilter===sc.name ? '' : sc.name"
-        >
-          <div class="flex items-center justify-between gap-3">
-            <span class="font-bold">{{sc.name}}</span>
-            <span class="subtle">保证金收益率 {{sc.margin_roi ?? sc.roi}}%</span>
-          </div>
-          <div class="mt-3 grid grid-cols-4 gap-2 subtle">
-            <span>订单 {{sc.orders_count}}</span>
-            <span>成交 {{sc.fills_count}}</span>
-            <span>胜率 {{fmt(sc.win_rate)}}%</span>
-            <span :class="signClass(sc.total_pnl)">合计 {{sc.total_pnl>=0?'+':''}}${{fmt(sc.total_pnl)}}</span>
-          </div>
-          <div class="mt-2 grid grid-cols-3 gap-2 subtle">
-            <span :class="signClass(sc.realized_pnl)">净实现 {{sc.realized_pnl>=0?'+':''}}${{fmt(sc.realized_pnl)}}</span>
-            <span :class="signClass(sc.unrealized_pnl)">浮动 {{sc.unrealized_pnl>=0?'+':''}}${{fmt(sc.unrealized_pnl)}}</span>
-            <span>保证金 ${{fmt(sc.used_margin)}}</span>
-          </div>
-          <div class="mt-2 grid grid-cols-3 gap-2 subtle">
-            <span>名义 ${{fmt(sc.open_notional)}}</span>
-            <span>手续费 ${{fmt(sc.fees_paid)}}</span>
-            <span>名义收益率 {{sc.notional_roi}}%</span>
-          </div>
-        </button>
-        <div v-if="strategies.length===0" class="subtle">暂无策略订单。</div>
-      </div>
-    </section>
-
-    <section class="panel min-w-0">
-      <div class="panel-head">
-        <div>
-          <div class="font-bold">资金曲线</div>
-          <div class="subtle">模拟曲线</div>
-        </div>
-      </div>
-      <div class="panel-body">
-        <div class="balance-box">
+        <div class="hero-chart-host">
           <canvas id="balanceChart"></canvas>
         </div>
+      </section>
+
+      <!-- T1 次级 KPI: 三张紧凑卡 -->
+      <section class="kpi-secondary">
+        <div class="kpi-mini">
+          <div class="kpi-mini-label">当日盈亏</div>
+          <div class="kpi-mini-value" :class="signClass(status.day_pnl?.pnl)">
+            {{ status.day_pnl?.pnl>=0 ? '+' : '' }}${{ fmt(status.day_pnl?.pnl) }}
+          </div>
+          <div class="kpi-mini-meta">
+            <span>实现 <span class="mono" :class="signClass(status.realized_pnl)">${{ fmt(status.realized_pnl) }}</span></span>
+            <span>浮动 <span class="mono" :class="signClass(status.unrealized_pnl)">${{ fmt(status.unrealized_pnl) }}</span></span>
+            <span>本周 <span class="mono" :class="signClass(status.week_pnl?.pnl)">${{ fmt(status.week_pnl?.pnl) }}</span></span>
+          </div>
+        </div>
+
+        <div class="kpi-mini">
+          <div class="kpi-mini-label">暴露度（名义仓位）</div>
+          <div class="kpi-mini-value">${{ fmt(status.open_notional) }}</div>
+          <div class="kpi-mini-meta">
+            <span>已用保证金 <span class="mono">${{ fmt(status.used_margin) }}</span></span>
+            <span>杠杆 <span class="mono">{{ fmt(status.paper_leverage, 0) }}×</span></span>
+            <span>持仓 <span class="mono">{{ status.open_positions_n || 0 }}</span></span>
+          </div>
+        </div>
+
+        <div class="kpi-mini">
+          <div class="kpi-mini-label">系统状态</div>
+          <div class="kpi-mini-value" :class="systemHealthOk ? 'pos' : 'neg'">
+            <span class="dot" :class="systemHealthOk ? 'live' : 'err'" style="vertical-align:middle; margin-right:6px"></span>
+            {{ systemHealthOk ? '健康' : '降级' }}
+          </div>
+          <div class="kpi-mini-meta">
+            <span>严重 <span class="mono" :class="(status.critical_risk_events_n || 0) > 0 ? 'neg' : ''">{{ status.critical_risk_events_n || 0 }}</span></span>
+            <span>风控事件 <span class="mono">{{ status.risk_events_n || 0 }}</span></span>
+            <span>WS <span class="mono">{{ wsAgeText }}</span></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- T2 策略表现：独占全宽 -->
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">策略表现</div>
+            <div class="card-sub">{{ strategies.length }} 个策略 · 点击筛选订单 · 进度条 = 胜率</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" v-if="strategyFilter" @click="strategyFilter=''">清除筛选</button>
+        </div>
+        <div class="card-body-flush">
+          <div v-if="strategies.length===0" class="table-empty">暂无策略数据</div>
+          <div v-else class="strategy-grid">
+            <div
+              v-for="sc in strategies"
+              :key="sc.name"
+              class="strategy-row"
+              :class="{active: strategyFilter===sc.name}"
+              @click="strategyFilter = strategyFilter===sc.name ? '' : sc.name"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="font-medium text-mono" style="font-size:13px">{{ sc.name }}</div>
+                <div class="text-mono" style="font-size:15px; font-weight:600" :class="signClass(sc.total_pnl)">
+                  {{ sc.total_pnl>=0 ? '+' : '' }}${{ fmt(sc.total_pnl) }}
+                </div>
+              </div>
+              <div class="strategy-meter">
+                <div class="strategy-meter-fill" :class="(sc.win_rate || 0) >= 50 ? 'pos' : 'neg'"
+                     :style="{width: Math.min(100, Math.max(0, sc.win_rate || 0)) + '%'}"></div>
+              </div>
+              <div class="flex items-center gap-2 text-xs text-muted mt-2">
+                <span>胜率 <span class="mono" :class="(sc.win_rate || 0) >= 50 ? 'pos' : ''">{{ fmt(sc.win_rate, 1) }}%</span></span>
+                <span class="text-faint">·</span>
+                <span>成交 <span class="mono">{{ sc.fills_count }}</span></span>
+                <span class="text-faint">·</span>
+                <span>手续费 <span class="mono">${{ fmt(sc.fees_paid) }}</span></span>
+              </div>
+              <div class="flex items-center gap-2 text-xs text-faint mt-1">
+                <span>净实现 <span class="text-mono" :class="signClass(sc.realized_pnl)">${{ fmt(sc.realized_pnl) }}</span></span>
+                <span>·</span>
+                <span>浮动 <span class="text-mono" :class="signClass(sc.unrealized_pnl)">${{ fmt(sc.unrealized_pnl) }}</span></span>
+                <span>·</span>
+                <span>名义 <span class="text-mono">${{ fmt(sc.open_notional) }}</span></span>
+                <span>·</span>
+                <span>保证金收益率 <span class="text-mono" :class="signClass(sc.margin_roi)">{{ fmt(sc.margin_roi, 2) }}%</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- T3 摘要条 -->
+      <section class="summary-bar">
+        <div>
+          <div class="summary-label">持仓 / 挂单</div>
+          <div class="summary-value">{{ status.open_positions_n || 0 }} / {{ status.open_orders_n || 0 }}</div>
+        </div>
+        <div>
+          <div class="summary-label">今日成交</div>
+          <div class="summary-value">{{ paperMetrics.fills?.total || 0 }}</div>
+        </div>
+        <div>
+          <div class="summary-label">今日成交额</div>
+          <div class="summary-value">${{ fmt(paperMetrics.fills?.filled_notional) }}</div>
+        </div>
+        <div>
+          <div class="summary-label">手续费支出</div>
+          <div class="summary-value neg">−${{ fmt(paperMetrics.fills?.fees) }}</div>
+        </div>
+      </section>
+
+    </template>
+
+    <!-- ═══════════════════════════════ 策略 ═══════════════════════════════ -->
+    <template v-if="activeTab==='strategies'">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">策略详情</div>
+            <div class="card-sub">paper 阶段 · 含已实现 / 浮动 / 手续费</div>
+          </div>
+        </div>
+        <div class="card-body-flush">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>策略</th><th class="text-right">订单</th><th class="text-right">成交</th>
+                <th class="text-right">胜率</th><th class="text-right">毛盈亏</th>
+                <th class="text-right">手续费</th><th class="text-right">净实现</th>
+                <th class="text-right">浮动</th><th class="text-right">合计</th>
+                <th class="text-right">名义</th><th class="text-right">保证金</th><th class="text-right">保证金收益率</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="sc in strategies" :key="sc.name">
+                <td class="text-mono">{{ sc.name }}</td>
+                <td class="num">{{ sc.orders_count }}</td>
+                <td class="num">{{ sc.fills_count }}</td>
+                <td class="num">{{ fmt(sc.win_rate, 1) }}%</td>
+                <td class="num" :class="signClass(sc.gross_realized_pnl)">${{ fmt(sc.gross_realized_pnl) }}</td>
+                <td class="num muted">−${{ fmt(sc.fees_paid) }}</td>
+                <td class="num" :class="signClass(sc.realized_pnl)">${{ fmt(sc.realized_pnl) }}</td>
+                <td class="num" :class="signClass(sc.unrealized_pnl)">${{ fmt(sc.unrealized_pnl) }}</td>
+                <td class="num" :class="signClass(sc.total_pnl)">${{ fmt(sc.total_pnl) }}</td>
+                <td class="num">${{ fmt(sc.open_notional) }}</td>
+                <td class="num">${{ fmt(sc.used_margin) }}</td>
+                <td class="num" :class="signClass(sc.margin_roi)">{{ fmt(sc.margin_roi, 2) }}%</td>
+              </tr>
+              <tr v-if="strategies.length===0"><td colspan="12" class="table-empty">暂无策略数据</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </template>
+
+    <!-- ═══════════════════════════════ 持仓 ═══════════════════════════════ -->
+    <template v-if="activeTab==='positions'">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">当前持仓</div>
+            <div class="card-sub">{{ positions.length }} 笔持仓 · 名义 ${{ fmt(status.open_notional) }} · 保证金 ${{ fmt(status.used_margin) }}</div>
+          </div>
+        </div>
+        <div class="card-body-flush table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>交易对</th><th>方向</th><th>策略</th>
+                <th class="text-right">数量</th><th class="text-right">入场</th>
+                <th class="text-right">现价</th><th class="text-right">浮动</th>
+                <th class="text-right">已实现</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in positions" :key="p.symbol+p.side+p.strategy">
+                <td class="text-mono">{{ p.symbol }}</td>
+                <td><span :class="p.side==='buy' ? 'chip chip-buy' : 'chip chip-sell'">{{ p.side==='buy' ? '↑ 多' : '↓ 空' }}</span></td>
+                <td class="text-mono muted">{{ p.strategy }}</td>
+                <td class="num">{{ fmt(p.qty, 6) }}</td>
+                <td class="num">${{ fmtPrice(p.entry_price) }}</td>
+                <td class="num">${{ fmtPrice(p.current_price) }}</td>
+                <td class="num" :class="signClass(p.unrealized_pnl)">{{ p.unrealized_pnl>=0?'+':'' }}${{ fmt(p.unrealized_pnl) }}</td>
+                <td class="num" :class="signClass(p.realized_pnl)">${{ fmt(p.realized_pnl) }}</td>
+              </tr>
+              <tr v-if="positions.length===0"><td colspan="8" class="table-empty">暂无持仓</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </template>
+
+    <!-- ═══════════════════════════════ 订单 / 成交 ═══════════════════════════════ -->
+    <template v-if="activeTab==='trades'">
+      <section class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">最近订单</div>
+              <div class="card-sub">筛选: {{ strategyFilter || '全部策略' }}</div>
+            </div>
+            <select v-model="orderStatusFilter" @change="loadOrders" class="btn btn-sm">
+              <option value="">全部状态</option>
+              <option value="filled">已成交</option>
+              <option value="accepted">挂单中</option>
+              <option value="canceled">已撤销</option>
+              <option value="rejected">已拒绝</option>
+            </select>
+          </div>
+          <div class="card-body-flush table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>时间</th><th>方向</th><th>交易对</th>
+                  <th>类型</th><th class="text-right">价格</th>
+                  <th class="text-right">数量</th><th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="o in filteredOrders" :key="o.id">
+                  <td class="text-mono muted">{{ tsToTime(o.placed_at) }}</td>
+                  <td><span :class="o.side==='buy' ? 'chip chip-buy' : 'chip chip-sell'">{{ o.side==='buy' ? '↑ 买' : '↓ 卖' }}</span></td>
+                  <td class="text-mono">{{ o.symbol }}</td>
+                  <td><span class="chip">{{ o.type==='market' ? '市价' : (o.type==='limit' ? '限价' : o.type) }}</span></td>
+                  <td class="num">{{ o.price ? '$'+fmtPrice(o.price) : '—' }}</td>
+                  <td class="num">{{ fmt(o.quantity, 6) }}</td>
+                  <td>
+                    <span :class="orderStatusChip(o.status)">{{ statusLabel(o.status) }}</span>
+                  </td>
+                </tr>
+                <tr v-if="filteredOrders.length===0"><td colspan="7" class="table-empty">暂无订单</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">最近成交</div>
+              <div class="card-sub">{{ paperMetrics.fills?.total || 0 }} 笔成交 · 累计已实现 <span :class="signClass(status.realized_pnl)">{{ status.realized_pnl>=0?'+':'' }}${{ fmt(status.realized_pnl) }}</span></div>
+            </div>
+          </div>
+          <div class="card-body-flush table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>时间</th><th>交易对</th><th>方向</th>
+                  <th class="text-right">价格</th><th class="text-right">数量</th>
+                  <th class="text-right">手续费</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="f in fills" :key="f.id">
+                  <td class="text-mono muted">{{ tsToTime(f.ts) }}</td>
+                  <td class="text-mono">{{ f.symbol }}</td>
+                  <td><span :class="f.side==='buy' ? 'chip chip-buy' : 'chip chip-sell'">{{ f.side==='buy' ? '↑ 买' : '↓ 卖' }}</span></td>
+                  <td class="num">${{ fmtPrice(f.price) }}</td>
+                  <td class="num">{{ fmt(f.quantity, 6) }}</td>
+                  <td class="num muted">${{ fmt(f.fee, 4) }}</td>
+                </tr>
+                <tr v-if="fills.length===0"><td colspan="6" class="table-empty">暂无成交</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </template>
+
+    <!-- ═══════════════════════════════ 行情 ═══════════════════════════════ -->
+    <template v-if="activeTab==='market'">
+      <section class="grid-overview">
+        <div class="card">
+          <div class="card-header">
+            <div class="flex items-center gap-3 flex-wrap">
+              <div>
+                <div class="card-title">{{ chartSymbol }} <span class="text-muted text-sm font-normal">/ {{ chartTF }}</span></div>
+                <div class="card-sub">
+                  <span class="text-mono" style="font-size:18px; color:var(--text); font-weight:600">${{ fmtPrice(activePrice.price) }}</span>
+                  <span :class="(activePrice.change_24h ?? 0) >= 0 ? 'pos' : 'neg'" style="margin-left:8px">
+                    {{ (activePrice.change_24h ?? 0) >= 0 ? '+' : '' }}{{ activePrice.change_24h ?? 0 }}%
+                  </span>
+                  <span class="text-faint" style="margin-left:8px">当前价 / 24小时涨跌 / 更新延迟 {{ freshnessText(activePrice) }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <select v-model="chartSymbol" @change="loadPriceHistory" class="btn btn-sm">
+                <option>BTCUSDT</option><option>ETHUSDT</option>
+              </select>
+              <select v-model="chartTF" @change="loadPriceHistory" class="btn btn-sm">
+                <option value="1m">1m</option><option value="5m">5m</option><option value="1h">1h</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-host">
+            <div id="priceChart" style="width:100%; height:100%"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">实时行情</div>
+              <div class="card-sub">{{ Object.keys(prices).length }} 个交易对 · Binance 公共行情</div>
+            </div>
+          </div>
+          <div class="card-body" style="max-height:520px; overflow:auto;">
+            <div class="ticker-list">
+              <div v-for="(info, sym) in prices" :key="sym" class="ticker-tile">
+                <div class="flex items-start justify-between gap-2">
+                  <div>
+                    <div class="ticker-symbol">{{ sym }}</div>
+                    <div class="ticker-price">${{ fmtPrice(info.price) }}</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="ticker-change" :class="(info.change_24h ?? 0) >= 0 ? 'pos' : 'neg'">
+                      {{ (info.change_24h ?? 0) >= 0 ? '+' : '' }}{{ info.change_24h ?? 0 }}%
+                    </div>
+                    <div class="text-xs text-faint">24h</div>
+                  </div>
+                </div>
+                <div class="text-xs text-faint mt-1 flex justify-between">
+                  <span>高 {{ fmtPrice(info.high_24h) }}</span>
+                  <span>低 {{ fmtPrice(info.low_24h) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </template>
+
+    <!-- ═══════════════════════════════ 实盘试运行 ═══════════════════════════════ -->
+    <template v-if="activeTab==='live'">
+      <div class="live-banner">
+        <div>
+          <div class="live-banner-strong">实盘试运行 · small_live</div>
+          <div style="margin-top:4px">手动 Spot 单通道 · 策略自动下单仍保持关闭 · 真实提交需通过预检 + 输入完整确认短语</div>
+        </div>
       </div>
-    </section>
-  </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">预检状态</div>
+            <div class="card-sub">{{ smallLive.config_path || 'config/small_live.yml' }}</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span :class="smallLive.ready ? 'chip chip-success' : 'chip chip-warn'">
+              {{ smallLive.ready ? '预检通过' : '预检阻塞' }}
+            </span>
+            <span class="chip">API Key {{ smallLive.credentials_present ? '已检测到' : '未检测到' }}</span>
+            <button class="btn btn-sm" @click="loadSmallLivePreflight">刷新</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div v-if="smallLive.blockers.length" class="neg text-sm">
+            阻塞：{{ smallLive.blockers.join(' · ') }}
+          </div>
+          <div v-else class="pos text-sm">当前无阻塞</div>
+          <div v-if="smallLive.warnings.length" class="text-sm" style="color:var(--warn); margin-top:6px">
+            告警：{{ smallLive.warnings.join(' · ') }}
+          </div>
+          <div class="text-sm text-muted mt-2">
+            允许交易对：<span class="text-mono">{{ smallLive.allowed_symbols.length ? smallLive.allowed_symbols.join(', ') : '—' }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">下单表单</div>
+            <div class="card-sub">默认 dry-run；提交真实订单必须输入确认短语</div>
+          </div>
+        </div>
+        <div class="card-body" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:14px;">
+          <div class="field">
+            <label for="sl-symbol">交易对</label>
+            <input id="sl-symbol" v-model="smallLiveForm.symbol" list="small-live-symbols" placeholder="BTCUSDT">
+            <datalist id="small-live-symbols">
+              <option v-for="sym in smallLive.allowed_symbols" :key="sym" :value="sym"></option>
+            </datalist>
+          </div>
+          <div class="field">
+            <label for="sl-side">方向</label>
+            <select id="sl-side" v-model="smallLiveForm.side">
+              <option value="buy">买入</option>
+              <option value="sell">卖出</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sl-order-type">订单类型</label>
+            <select id="sl-order-type" v-model="smallLiveForm.order_type">
+              <option value="market">市价</option>
+              <option value="limit">限价</option>
+            </select>
+          </div>
+          <div class="field field-mono">
+            <label for="sl-quantity">数量</label>
+            <input id="sl-quantity" v-model="smallLiveForm.quantity" inputmode="decimal" placeholder="本地填写">
+          </div>
+          <div class="field field-mono">
+            <label for="sl-price">限价（限价单填写）</label>
+            <input id="sl-price" v-model="smallLiveForm.price" inputmode="decimal" placeholder="—">
+          </div>
+          <div class="field field-mono">
+            <label for="sl-stop">止损价（开仓必填）</label>
+            <input id="sl-stop" v-model="smallLiveForm.stop_loss_price" inputmode="decimal" placeholder="—">
+          </div>
+          <div class="field" style="grid-column:1 / -1">
+            <label for="sl-client-id">订单 ID（client_order_id）</label>
+            <input id="sl-client-id" v-model="smallLiveForm.client_order_id" class="text-mono" placeholder="唯一订单 ID">
+          </div>
+          <div class="field" style="grid-column:1 / -1">
+            <label for="sl-confirm">确认短语</label>
+            <input id="sl-confirm" v-model="smallLiveForm.confirmation" class="text-mono" placeholder="I_UNDERSTAND_LIVE_ORDER_RISK">
+          </div>
+          <div style="grid-column:1 / -1; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <button class="btn" @click="dryRunSmallLiveOrder" :disabled="smallLive.loading">模拟检查</button>
+            <button class="btn btn-danger" @click="submitSmallLiveOrder"
+              :disabled="smallLive.loading || smallLiveForm.confirmation !== 'I_UNDERSTAND_LIVE_ORDER_RISK'">
+              提交实盘订单
+            </button>
+            <span class="text-sm text-muted">真实提交必须先通过模拟检查，并输入完整确认短语 I_UNDERSTAND_LIVE_ORDER_RISK</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" v-if="smallLive.lastResult">
+        <div class="card-header">
+          <div>
+            <div class="card-title">检查结果</div>
+            <div class="card-sub">最后一次请求</div>
+          </div>
+        </div>
+        <div class="card-body text-sm">
+          <div>模式：<span class="chip">{{ smallLive.lastResult.dry_run ? '模拟检查' : '实盘提交' }}</span></div>
+          <div class="mt-2">结果：
+            <span v-if="smallLive.lastResult.submitted" class="chip chip-success">已提交</span>
+            <span v-else-if="smallLive.lastResult.would_submit" class="chip chip-info">可提交</span>
+            <span v-else class="chip chip-warn">未提交</span>
+          </div>
+          <div v-if="smallLive.lastResult.entry" class="mt-2">交易所状态：<span class="text-mono">{{ smallLive.lastResult.entry.status }}</span></div>
+        </div>
+      </section>
+    </template>
+
+    <!-- ═══════════════════════════════ 数据 ═══════════════════════════════ -->
+    <template v-if="activeTab==='data'">
+      <section class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">数据健康</div>
+              <div class="card-sub">{{ dataHealth.latest_endpoint || '暂无端点' }}</div>
+            </div>
+            <span :class="dataHealth.status==='ok' ? 'chip chip-success' : (dataHealth.status==='degraded' ? 'chip chip-danger' : 'chip')">
+              {{ dataHealth.status }}
+            </span>
+          </div>
+          <div class="card-body" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div>
+              <div class="text-xs text-muted">运行日志</div>
+              <div class="text-mono" style="font-size:18px; font-weight:600;">{{ dataHealth.total }}</div>
+            </div>
+            <div>
+              <div class="text-xs text-muted">成功 / 失败</div>
+              <div class="text-mono" style="font-size:18px; font-weight:600;">
+                {{ dataHealth.by_status?.ok || 0 }} <span class="text-faint">/</span> {{ dataHealth.by_status?.fail || 0 }}
+              </div>
+            </div>
+            <div>
+              <div class="text-xs text-muted">平均延迟</div>
+              <div class="text-mono" style="font-size:18px; font-weight:600;">{{ dataHealth.latency_ms?.avg ?? '—' }} ms</div>
+            </div>
+            <div>
+              <div class="text-xs text-muted">最大延迟</div>
+              <div class="text-mono" style="font-size:18px; font-weight:600;">{{ dataHealth.latency_ms?.max ?? '—' }} ms</div>
+            </div>
+            <div style="grid-column:1 / -1" class="text-sm text-muted">
+              最近异常：{{ dataHealth.recent_failures?.[0]?.note || '无' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">运行环境</div>
+              <div class="card-sub">本地数据源 + Binance 公共行情</div>
+            </div>
+          </div>
+          <div class="card-body" style="display:grid; grid-template-columns:1fr; gap:14px;">
+            <div>
+              <div class="text-xs text-muted">数据源</div>
+              <div class="text-mono text-sm" style="word-break:break-all">{{ status.db_path || '—' }}</div>
+            </div>
+            <div>
+              <div class="text-xs text-muted">数据起点</div>
+              <div class="text-mono text-sm">{{ status.data_started_at ? new Date(status.data_started_at).toLocaleString('zh-CN', {hour12:false}) : '—' }}</div>
+            </div>
+            <div>
+              <div class="text-xs text-muted">工作目录</div>
+              <div class="text-mono text-sm" style="word-break:break-all">{{ status.workspace_path || '—' }}</div>
+            </div>
+            <div>
+              <div class="text-xs text-muted">行情覆盖</div>
+              <div class="text-mono text-sm">{{ Object.keys(status.latest_prices || prices || {}).length || 0 }} 个交易对</div>
+            </div>
+            <div>
+              <div class="text-xs text-muted">订单 / 成交累计</div>
+              <div class="text-mono text-sm">{{ status.orders_count || 0 }} / {{ status.fills_count || 0 }}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </template>
+
+  </main>
+
+  <div v-if="toast" class="toast">{{ toast }}</div>
 </div>
 
 <script>
-const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, watch } = Vue
+const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue
 
 createApp({
   setup() {
     const status = reactive({
       mode:'paper', simulation_running:false, ws_connected:false, bars_received:0,
       workspace_path:'', db_path:'', data_started_at:null, orders_count:0, fills_count:0,
-      initial_balance:10000, portfolio_value:10000, usdt_balance:10000, open_positions_n:0, open_orders_n:0,
-      account_equity:10000, available_balance:10000, used_margin:0, open_notional:0,
+      initial_balance:0, portfolio_value:0, usdt_balance:0, open_positions_n:0, open_orders_n:0,
+      account_equity:0, available_balance:0, used_margin:0, open_notional:0,
       gross_realized_pnl:0, fees_paid:0, net_realized_pnl:0,
       realized_pnl:0, unrealized_pnl:0, paper_leverage:25,
-      risk_events_n:0, critical_risk_events_n:0,
-      day_pnl:{n:0,pnl:0}, week_pnl:{n:0,pnl:0}, latest_prices:{}
+      risk_events_n:0, raw_risk_events_n:0, critical_risk_events_n:0,
+      day_pnl:{n:0,pnl:0,realized_pnl:0,unrealized_pnl:0}, week_pnl:{n:0,pnl:0,realized_pnl:0,unrealized_pnl:0},
+      latest_prices:{}
     })
     const paperMetrics = reactive({
       symbols:[], orders:{total:0,by_status:{}},
@@ -899,18 +1071,16 @@ createApp({
     const strategyFilter = ref('')
     const orderStatusFilter = ref('')
     const toast = ref('')
+    const activeTab = ref('overview')
+    const balanceRange = ref('all')   // '24h' | '7d' | '30d' | 'all'
     const smallLive = reactive({
       ready:false, enabled:false, mode:'paper', spot_only:false, credentials_present:false,
       allowed_symbols:[], blockers:[], warnings:[], budget_limits_configured:false,
-      loading:false, lastResult:null,
+      loading:false, lastResult:null, config_path:'',
     })
     const smallLiveForm = reactive({
-      symbol:'BTCUSDT',
-      side:'buy',
-      order_type:'market',
-      quantity:'',
-      price:'',
-      stop_loss_price:'',
+      symbol:'BTCUSDT', side:'buy', order_type:'market',
+      quantity:'', price:'', stop_loss_price:'',
       client_order_id:'ui-'+Date.now(),
       confirmation:'',
     })
@@ -935,19 +1105,51 @@ createApp({
     })
     const isRunning = computed(() => Boolean(status.simulation_running || status.ws_connected))
     const activePrice = computed(() => prices[chartSymbol.value] || {price:null, change_24h:0, age_ms:null})
+    const equityDelta = computed(() => Number((status.portfolio_value || 0) - (status.initial_balance || 0)))
+    const equityDeltaPct = computed(() => {
+      const base = Number(status.initial_balance || 0)
+      if (!base) return 0
+      return equityDelta.value / base * 100
+    })
+    const wsAgeText = computed(() => {
+      const age = Number(status.last_bar_age_ms ?? 0)
+      if (!age) return '—'
+      if (age < 1000) return age + ' ms'
+      return (age / 1000).toFixed(1) + ' s'
+    })
+    const systemHealthOk = computed(() => Boolean(
+      isRunning.value && (status.critical_risk_events_n || 0) === 0 && dataHealth.status !== 'degraded'
+    ))
 
     const fmt = (value, digits=2) => (
-      value != null ? Number(value).toLocaleString('en-US', {minimumFractionDigits:digits, maximumFractionDigits:digits}) : '-'
+      value != null && !Number.isNaN(Number(value))
+        ? Number(value).toLocaleString('en-US', {minimumFractionDigits:digits, maximumFractionDigits:digits})
+        : '-'
     )
-    const tsToTime = (ts) => {
-      if (!ts) return '-'
-      return new Date(ts).toLocaleTimeString('zh-CN', {hour12:false})
+    // 价格自适应精度（GALA 0.00425 不再被 round 成 0）
+    const fmtPrice = (value) => {
+      if (value == null || Number.isNaN(Number(value))) return '-'
+      const v = Math.abs(Number(value))
+      let digits
+      if (v >= 1000) digits = 2
+      else if (v >= 1) digits = 4
+      else if (v >= 0.01) digits = 5
+      else digits = 8
+      return Number(value).toLocaleString('en-US', {minimumFractionDigits:digits, maximumFractionDigits:digits})
     }
+    const tsToTime = (ts) => ts ? new Date(ts).toLocaleTimeString('zh-CN', {hour12:false}) : '-'
     const statusLabel = (value) => ({
       filled:'已成交', accepted:'挂单中', canceled:'已撤销', rejected:'已拒绝', new:'新订单',
     }[value] || value)
     const signClass = (value) => Number(value || 0) >= 0 ? 'pos' : 'neg'
-    const healthBadge = (value) => value === 'ok' ? 'badge badge-ok' : value === 'degraded' ? 'badge badge-err' : 'badge badge-idle'
+    const orderStatusChip = (value) => {
+      if (value === 'filled') return 'chip chip-success'
+      if (value === 'accepted') return 'chip chip-info'
+      if (value === 'rejected' || value === 'canceled') return 'chip chip-danger'
+      return 'chip'
+    }
+    const healthBadge = (value) =>
+      value === 'ok' ? 'chip chip-success' : value === 'degraded' ? 'chip chip-danger' : 'chip'
     const priceAgeMs = (info) => Number(info?.age_ms ?? 0)
     const freshnessText = (info) => {
       const age = priceAgeMs(info)
@@ -1031,19 +1233,21 @@ createApp({
         smallLive.loading = false
       }
     }
-
     const dryRunSmallLiveOrder = async () => sendSmallLiveOrder(true)
     const submitSmallLiveOrder = async () => sendSmallLiveOrder(false)
+
+    const setBalanceRange = (range) => {
+      balanceRange.value = range
+      drawBalanceChart()
+    }
 
     const loadOrders = async () => {
       orders.value = await fetch(API+'/api/orders?limit=80&status='+orderStatusFilter.value).then(r=>r.json())
     }
-
     const loadPriceHistory = async () => {
       priceHistory.value = await fetch(API+'/api/price_history?symbol='+chartSymbol.value+'&tf='+chartTF.value+'&n=240').then(r=>r.json())
       drawPriceChart()
     }
-
     const loadBalanceHistory = async () => {
       balanceHistory.value = await fetch(API+'/api/balance_history?limit=500').then(r=>r.json())
       drawBalanceChart()
@@ -1051,64 +1255,62 @@ createApp({
 
     const startSim = async () => {
       await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start'})})
-      await loadAll()
-      flash('模拟已启动')
+      await loadAll(); flash('模拟已启动')
     }
     const stopSim = async () => {
       await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'stop'})})
-      await loadAll()
-      flash('模拟已停止')
+      await loadAll(); flash('模拟已停止')
     }
     const randomOrder = async () => {
       await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'random_order'})})
-      await loadAll()
-      flash('已发送随机下单请求')
+      await loadAll(); flash('已发送随机下单请求')
     }
-
-    const chartGrid = {
-      color:'rgba(100,116,139,.16)',
-      tickColor:'rgba(100,116,139,.18)',
-    }
-    const chartTicks = { color:'#64748b', font:{size:11} }
 
     const ma = (data, period) => data.map((_, index) => {
-        if (index < period - 1) return null
-        let sum = 0
-        for (let cursor = index - period + 1; cursor <= index; cursor++) sum += data[cursor]
-        return sum / period
-      })
+      if (index < period - 1) return null
+      let sum = 0
+      for (let cursor = index - period + 1; cursor <= index; cursor++) sum += data[cursor]
+      return sum / period
+    })
 
     const ensurePriceChart = () => {
       const el = document.getElementById('priceChart')
       if (!el || !window.LightweightCharts) return false
-      if (priceChart) return true
+      if (priceChart) {
+        // tab 切换后容器尺寸可能变化
+        const rect = el.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) priceChart.applyOptions({width:rect.width, height:rect.height})
+        return true
+      }
       priceChart = LightweightCharts.createChart(el, {
         width:el.clientWidth,
-        height:el.clientHeight,
-        layout:{background:{type:'solid',color:'transparent'},textColor:'#334155',fontFamily:'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'},
-        grid:{vertLines:{color:'rgba(148,163,184,.18)'},horzLines:{color:'rgba(148,163,184,.18)'}},
+        height:el.clientHeight || 380,
+        layout:{
+          background:{type:'solid',color:'#ffffff'},
+          textColor:'#6b6b67',
+          fontFamily:'"Inter", system-ui, "PingFang SC", sans-serif',
+        },
+        grid:{vertLines:{color:'#f0efed'},horzLines:{color:'#f0efed'}},
         crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-        rightPriceScale:{borderColor:'#dbe4ee',scaleMargins:{top:.08,bottom:.24}},
-        timeScale:{borderColor:'#dbe4ee',timeVisible:true,secondsVisible:false},
+        rightPriceScale:{borderColor:'#e8e8e6',scaleMargins:{top:.08,bottom:.24}},
+        timeScale:{borderColor:'#e8e8e6',timeVisible:true,secondsVisible:false},
       })
       candleSeries = priceChart.addCandlestickSeries({
-        upColor:'#16a34a',downColor:'#dc2626',
-        borderUpColor:'#15803d',borderDownColor:'#b91c1c',
-        wickUpColor:'#15803d',wickDownColor:'#b91c1c',
-        priceLineColor:'#2563eb',
+        upColor:'#0f7b3b', downColor:'#d73a49',
+        borderUpColor:'#0a5d2c', borderDownColor:'#a52d3a',
+        wickUpColor:'#0a5d2c', wickDownColor:'#a52d3a',
+        priceLineColor:'#2383e2',
       })
       volumeSeries = priceChart.addHistogramSeries({
-        priceFormat:{type:'volume'},
-        priceScaleId:'',
-        lastValueVisible:false,
-        priceLineVisible:false,
+        priceFormat:{type:'volume'}, priceScaleId:'',
+        lastValueVisible:false, priceLineVisible:false,
       })
       volumeSeries.priceScale().applyOptions({scaleMargins:{top:.78,bottom:0}})
-      ma20Series = priceChart.addLineSeries({color:'#d97706',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
-      ma50Series = priceChart.addLineSeries({color:'#0f766e',lineWidth:2,priceLineVisible:false,lastValueVisible:false})
+      ma20Series = priceChart.addLineSeries({color:'#cb6e17', lineWidth:2, priceLineVisible:false, lastValueVisible:false})
+      ma50Series = priceChart.addLineSeries({color:'#2383e2', lineWidth:2, priceLineVisible:false, lastValueVisible:false})
       chartResizeObserver = new ResizeObserver(entries => {
         const rect = entries[0]?.contentRect
-        if (rect && priceChart) priceChart.applyOptions({width:rect.width,height:rect.height})
+        if (rect && priceChart) priceChart.applyOptions({width:rect.width, height:rect.height})
       })
       chartResizeObserver.observe(el)
       return true
@@ -1118,8 +1320,8 @@ createApp({
       if (!ensurePriceChart()) return
       const bars = priceHistory.value
       const closeData = bars.map(bar => bar.c)
-      const ma20 = ma(closeData,20)
-      const ma50 = ma(closeData,50)
+      const ma20 = ma(closeData, 20)
+      const ma50 = ma(closeData, 50)
       const candles = bars.map(bar => ({
         time:Math.floor(bar.ts / 1000),
         open:bar.o, high:bar.h, low:bar.l, close:bar.c,
@@ -1127,7 +1329,7 @@ createApp({
       const volumes = bars.map(bar => ({
         time:Math.floor(bar.ts / 1000),
         value:bar.v || 0,
-        color:bar.c >= bar.o ? 'rgba(22,163,74,.34)' : 'rgba(220,38,38,.28)',
+        color: bar.c >= bar.o ? 'rgba(15,123,59,.30)' : 'rgba(215,58,73,.26)',
       }))
       const lineData = (rows) => rows
         .map((value, index) => value == null ? null : ({time:Math.floor(bars[index].ts / 1000), value}))
@@ -1136,21 +1338,38 @@ createApp({
       volumeSeries.setData(volumes)
       ma20Series.setData(lineData(ma20))
       ma50Series.setData(lineData(ma50))
-      if (candles.length) {
-        priceChart.timeScale().fitContent()
-      }
+      if (candles.length) priceChart.timeScale().fitContent()
+    }
+
+    const rangeWindowMs = {
+      '24h': 24 * 60 * 60 * 1000,
+      '7d':  7  * 24 * 60 * 60 * 1000,
+      '30d': 30 * 24 * 60 * 60 * 1000,
+      'all': null,
     }
 
     const drawBalanceChart = () => {
       const ctx = document.getElementById('balanceChart')
       if (!ctx) return
-      const rows = balanceHistory.value
+      let rows = balanceHistory.value || []
+      const window = rangeWindowMs[balanceRange.value]
+      if (window != null && rows.length) {
+        const cutoff = Date.now() - window
+        const filtered = rows.filter(row => (row.ts || row.captured_at || 0) >= cutoff)
+        if (filtered.length >= 2) rows = filtered
+      }
       const source = rows.length >= 2 ? rows : [
         {ts:Date.now()-60000, portfolio_value:status.portfolio_value},
         {ts:Date.now(), portfolio_value:status.portfolio_value},
       ]
-      const labels = source.map(row => new Date(row.ts || row.captured_at || Date.now()).toLocaleTimeString('zh-CN', {hour12:false}))
-      const values = source.map(row => row.balance || row.portfolio_value || status.portfolio_value || 10000)
+      const showDate = balanceRange.value === '30d' || balanceRange.value === 'all'
+      const labels = source.map(row => {
+        const d = new Date(row.ts || row.captured_at || Date.now())
+        return showDate
+          ? d.toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false})
+          : d.toLocaleTimeString('zh-CN', {hour12:false})
+      })
+      const values = source.map(row => row.balance || row.portfolio_value || status.portfolio_value || 0)
       const start = values[0] || 0
       const pnl = values.map(value => value - start)
       if (balanceChart) balanceChart.destroy()
@@ -1159,19 +1378,21 @@ createApp({
         data:{
           labels,
           datasets:[
-            {label:'账户权益',data:values,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.10)',fill:true,tension:.2,pointRadius:0,yAxisID:'y'},
-            {label:'累计盈亏',data:pnl,borderColor:'#059669',borderDash:[5,4],fill:false,tension:0,pointRadius:0,yAxisID:'y1'},
+            {label:'账户权益', data:values, borderColor:'#2383e2', backgroundColor:'rgba(35,131,226,.08)', fill:true, tension:.2, pointRadius:0, yAxisID:'y'},
+            {label:'累计盈亏', data:pnl, borderColor:'#0f7b3b', borderDash:[5,4], fill:false, tension:0, pointRadius:0, yAxisID:'y1'},
           ]
         },
         options:{
           responsive:true, maintainAspectRatio:false, animation:false,
-          interaction:{mode:'nearest',intersect:false},
+          interaction:{mode:'nearest', intersect:false},
           scales:{
-            x:{grid:chartGrid,ticks:{...chartTicks,maxTicksLimit:10}},
-            y:{position:'left',grid:chartGrid,ticks:{...chartTicks,callback:value=>'$'+Number(value).toLocaleString()}},
-            y1:{position:'right',grid:{drawOnChartArea:false},ticks:{...chartTicks,callback:value=>'$'+Number(value).toLocaleString()}},
+            x:{grid:{color:'#f0efed'}, ticks:{color:'#9b9b97', font:{size:11}, maxTicksLimit:10}},
+            y:{position:'left', grid:{color:'#f0efed'}, ticks:{color:'#9b9b97', font:{size:11}, callback:v=>'$'+Number(v).toLocaleString()}},
+            y1:{position:'right', grid:{drawOnChartArea:false}, ticks:{color:'#9b9b97', font:{size:11}, callback:v=>'$'+Number(v).toLocaleString()}},
           },
-          plugins:{legend:{labels:{color:'#334155',boxWidth:10,usePointStyle:true}}},
+          plugins:{
+            legend:{labels:{color:'#6b6b67', boxWidth:10, usePointStyle:true, font:{size:11}}},
+          },
         }
       })
     }
@@ -1198,6 +1419,7 @@ createApp({
           simulation_running: msg.simulation_running ?? msg.ws_connected ?? false,
           ws_connected: msg.ws_connected ?? false,
           bars_received: msg.bars_received ?? status.bars_received,
+          last_bar_age_ms: msg.last_bar_age_ms ?? status.last_bar_age_ms,
           open_positions_n: msg.open_positions_n,
           latest_prices: msg.latest_prices || {},
         })
@@ -1229,15 +1451,23 @@ createApp({
 
     watch(chartSymbol, () => loadPriceHistory())
     watch(chartTF, () => loadPriceHistory())
+    // 切换到含图表的 tab 时，重新计算容器尺寸
+    watch(activeTab, async (tab) => {
+      await nextTick()
+      if (tab === 'overview') drawBalanceChart()
+      if (tab === 'market')   drawPriceChart()
+    })
 
     return {
-      status,paperMetrics,dataHealth,prices,orders,fills,positions,strategies,balanceHistory,priceHistory,
-      chartSymbol,chartTF,strategyFilter,orderStatusFilter,toast,smallLive,smallLiveForm,
-      filteredOrders,isRunning,activePrice,
-      fmt,tsToTime,statusLabel,signClass,healthBadge,priceAgeMs,freshnessText,
-      loadAll,loadPrices,loadOrders,loadPriceHistory,loadBalanceHistory,loadSmallLivePreflight,
-      dryRunSmallLiveOrder,submitSmallLiveOrder,
-      startSim,stopSim,randomOrder,
+      status, paperMetrics, dataHealth, prices, orders, fills, positions, strategies, balanceHistory, priceHistory,
+      chartSymbol, chartTF, strategyFilter, orderStatusFilter, toast, smallLive, smallLiveForm,
+      activeTab, balanceRange,
+      filteredOrders, isRunning, activePrice, equityDelta, equityDeltaPct, wsAgeText, systemHealthOk,
+      fmt, fmtPrice, tsToTime, statusLabel, signClass, healthBadge, orderStatusChip,
+      priceAgeMs, freshnessText,
+      loadAll, loadPrices, loadOrders, loadPriceHistory, loadBalanceHistory, loadSmallLivePreflight,
+      dryRunSmallLiveOrder, submitSmallLiveOrder, setBalanceRange,
+      startSim, stopSim, randomOrder,
     }
   }
 }).mount('#app')

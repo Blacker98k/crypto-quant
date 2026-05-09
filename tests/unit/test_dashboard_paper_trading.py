@@ -7,14 +7,18 @@ import pytest
 from fastapi import FastAPI
 
 from core.data.exchange.base import Bar
+from core.data.feed import LiveFeed
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
 from core.execution.paper_engine import PaperMatchingEngine
+from core.strategy.base import DataRequirement, Signal, Strategy
 from dashboard.paper_trading import (
+    CoreStrategyAdapter,
     DashboardPaperTrader,
     ExplorationStrategy,
     bars_from_binance_klines,
+    default_dashboard_strategies,
     select_top_usdt_symbols,
     upsert_dashboard_universe,
 )
@@ -33,7 +37,48 @@ class _StoppedFeeder:
         self._running = False
 
 
+class _SignalOnEveryBarStrategy(Strategy):
+    name = "S_core_test"
+    version = "dev"
+    config_hash = "testhash"
+    __slots__ = ()
+
+    def required_data(self) -> DataRequirement:
+        return DataRequirement(symbols=["BTCUSDT"], timeframes=["1m"], history_lookback_bars=2)
+
+    def on_bar(self, bar: Bar, ctx) -> list[Signal]:
+        return [
+            Signal(
+                side="long",
+                symbol=bar.symbol,
+                entry_price=None,
+                stop_price=bar.c * 0.99,
+                confidence=0.7,
+                suggested_size=0.25,
+            )
+        ]
+
+
+class _SignalOnFourHourStrategy(_SignalOnEveryBarStrategy):
+    name = "S_core_4h_test"
+    __slots__ = ()
+
+    def required_data(self) -> DataRequirement:
+        return DataRequirement(symbols=["BTCUSDT"], timeframes=["4h"], history_lookback_bars=2)
+
+
 def _seed_symbol(repo: SqliteRepo, symbol: str) -> None:
+    _seed_symbol_with_limits(repo, symbol=symbol)
+
+
+def _seed_symbol_with_limits(
+    repo: SqliteRepo,
+    *,
+    symbol: str,
+    tick_size: float = 0.01,
+    lot_size: float = 0.0001,
+    min_notional: float = 5.0,
+) -> None:
     repo.upsert_symbols(
         [
             {
@@ -43,9 +88,9 @@ def _seed_symbol(repo: SqliteRepo, symbol: str) -> None:
                 "base": symbol.replace("USDT", ""),
                 "quote": "USDT",
                 "universe": "top30",
-                "tick_size": 0.01,
-                "lot_size": 0.0001,
-                "min_notional": 5.0,
+                "tick_size": tick_size,
+                "lot_size": lot_size,
+                "min_notional": min_notional,
                 "listed_at": 1,
             }
         ]
@@ -89,6 +134,18 @@ def test_select_top_usdt_symbols_filters_to_mainstream_quote_volume() -> None:
     symbols = select_top_usdt_symbols(rows, limit=3)
 
     assert symbols == ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+
+
+def test_select_top_usdt_symbols_uses_pol_instead_of_delisted_matic() -> None:
+    rows = [
+        {"symbol": "MATICUSDT", "quoteVolume": "9000000000"},
+        {"symbol": "POLUSDT", "quoteVolume": "8000000000"},
+        {"symbol": "BTCUSDT", "quoteVolume": "7000000000"},
+    ]
+
+    symbols = select_top_usdt_symbols(rows, limit=3)
+
+    assert symbols == ["POLUSDT", "BTCUSDT"]
 
 
 def test_upsert_dashboard_universe_marks_top30_symbols(sqlite_repo: SqliteRepo) -> None:
@@ -221,6 +278,145 @@ def test_dashboard_paper_trader_scales_notional_by_strategy(
         notional_by_strategy["explore_momentum"] * 0.5,
         rel=0.02,
     )
+
+
+def test_dashboard_paper_trader_rejects_orders_through_l1_risk(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol_with_limits(sqlite_repo, symbol="BTCUSDT", min_notional=50.0)
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    bar = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+
+    handles = trader.on_bar(bar, now_ms=bar.ts)
+
+    order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
+    risk_row = sqlite_repo._conn.execute("SELECT * FROM risk_events").fetchone()
+    assert handles == []
+    assert order_count["n"] == 0
+    assert risk_row["source"] == "L1"
+    assert "min_notional" in risk_row["payload"]
+
+
+def test_dashboard_paper_trader_runs_core_strategy_adapter(
+    tmp_path: Path,
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    feed = LiveFeed(parquet_io, sqlite_repo, cache)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[CoreStrategyAdapter(_SignalOnEveryBarStrategy(), feed=feed, repo=sqlite_repo)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    bar = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+
+    handles = trader.on_bar(bar, now_ms=bar.ts)
+
+    order_rows = sqlite_repo._conn.execute("SELECT * FROM orders").fetchall()
+    assert [handle.status for handle in handles] == ["filled"]
+    assert [row["strategy_version"] for row in order_rows] == ["S_core_test"]
+
+
+def test_default_dashboard_strategies_use_core_strategies_by_default(
+    tmp_path: Path,
+    sqlite_repo: SqliteRepo,
+) -> None:
+    cache = MemoryCache(max_bars=20)
+    feed = LiveFeed(ParquetIO(data_root=tmp_path / "parquet"), sqlite_repo, cache)
+
+    names = [strategy.name for strategy in default_dashboard_strategies(feed=feed, repo=sqlite_repo)]
+
+    assert "S1_btc_eth_trend" in names
+    assert "S2_altcoin_reversal" in names
+    assert "explore_momentum" not in names
+    assert "S3_pair_trading" not in names
+
+
+def test_default_dashboard_s2_follows_top30_symbols(
+    tmp_path: Path,
+    sqlite_repo: SqliteRepo,
+) -> None:
+    cache = MemoryCache(max_bars=20)
+    feed = LiveFeed(ParquetIO(data_root=tmp_path / "parquet"), sqlite_repo, cache)
+    strategies = default_dashboard_strategies(feed=feed, repo=sqlite_repo)
+    s2 = next(strategy for strategy in strategies if strategy.name == "S2_altcoin_reversal")
+
+    assert "SOLUSDT" in s2.requirement.symbols
+    assert s2.supports("SOLUSDT", "1h")
+
+    s2.replace_symbols(["BTCUSDT", "ETHUSDT", "SUIUSDT"])
+
+    assert s2.requirement.symbols == ["BTCUSDT", "ETHUSDT", "SUIUSDT"]
+    assert s2.supports("SUIUSDT", "1h")
+    assert not s2.supports("SOLUSDT", "1h")
+
+
+def test_dashboard_paper_trader_routes_required_timeframe_to_core_strategy(
+    tmp_path: Path,
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    feed = LiveFeed(ParquetIO(data_root=tmp_path / "parquet"), sqlite_repo, cache)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[CoreStrategyAdapter(_SignalOnFourHourStrategy(), feed=feed, repo=sqlite_repo)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    bar = Bar("BTCUSDT", "4h", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+
+    handles = trader.on_bar(bar, now_ms=bar.ts)
+
+    assert [handle.status for handle in handles] == ["filled"]
+
+
+def test_dashboard_paper_trader_ignores_unsupported_core_timeframes(
+    tmp_path: Path,
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    feed = LiveFeed(ParquetIO(data_root=tmp_path / "parquet"), sqlite_repo, cache)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[CoreStrategyAdapter(_SignalOnFourHourStrategy(), feed=feed, repo=sqlite_repo)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    one_minute = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+
+    handles = trader.on_bar(one_minute, now_ms=one_minute.ts)
+    matrix = trader.strategy_matrix()
+
+    assert handles == []
+    assert matrix["cells"][0]["last_eval_at"] is None
+    assert matrix["cells"][0]["bars"] == 0
 
 
 def test_dashboard_paper_trader_does_not_record_cooldown_as_risk_event(

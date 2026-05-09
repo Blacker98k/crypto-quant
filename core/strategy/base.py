@@ -68,7 +68,7 @@ class StrategyContext:
     策略通过 ``ctx`` 取数据、查状态、持久化 KV，不直接访问外部系统。
     """
 
-    __slots__ = ("_clock", "_data", "_repo", "_strategy_name")
+    __slots__ = ("_account_equity", "_clock", "_data", "_repo", "_strategy_name")
 
     def __init__(
         self,
@@ -76,11 +76,13 @@ class StrategyContext:
         clock: _ClockLike | None,
         repo: _StrategyRepoLike,
         strategy_name: str,
+        account_equity: float = 10_000.0,
     ) -> None:
         self._data = data
         self._clock = clock
         self._repo = repo
         self._strategy_name = strategy_name
+        self._account_equity = float(account_equity)
 
     # ─── 数据访问 ────────────────────────────────────────────────────────
 
@@ -88,6 +90,10 @@ class StrategyContext:
     def data(self) -> DataFeed:
         """DataFeed 统一数据接口。"""
         return self._data
+
+    @property
+    def account_equity(self) -> float:
+        return self._account_equity
 
     # ─── 时间 ────────────────────────────────────────────────────────────
 

@@ -29,7 +29,7 @@ P1.3 上线 WS 数据采集器后，本脚本将启动：
   - data-feed-daemon   （WS 订阅 + parquet 异步落库）
 
 P1.9 上线 Dashboard 后追加：
-  - dashboard          （监听 127.0.0.1:8088）
+  - dashboard          （监听 127.0.0.1:8089）
 
 如需开发期跑测试：
   uv sync

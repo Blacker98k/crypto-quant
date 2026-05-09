@@ -10,6 +10,7 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
+from core.common.proxy import binance_proxy_url
 from core.data.exchange.binance_usdm import BinanceUsdmAdapter
 
 STABLECOINS = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "FDUSD", "PAX", "USTC", "USDD", "FRAX"}
@@ -17,7 +18,7 @@ EXCLUDE_SYMBOLS = {"BTCUSDT", "ETHUSDT", "BNBUSDT"}
 TOP_N = 30  # 先拉前 30，跑通流程
 TIMEFRAMES = ["1h", "1d"]
 DAYS_BACK = 365
-PROXY = "http://127.0.0.1:57777"
+PROXY = binance_proxy_url()
 
 
 async def fetch_top_perp_symbols() -> list[str]:
@@ -30,11 +31,10 @@ async def fetch_top_perp_symbols() -> list[str]:
         print(f"  load_markets 失败: {e}")
         print("  回退到 ccxt 直连方式...")
         import ccxt
-        cex = ccxt.binanceusdm({
-            "enableRateLimit": True,
-            "proxies": {"http": PROXY, "https": PROXY},
-            "timeout": 30000,
-        })
+        ccxt_config = {"enableRateLimit": True, "timeout": 30000}
+        if PROXY:
+            ccxt_config["proxies"] = {"http": PROXY, "https": PROXY}
+        cex = ccxt.binanceusdm(ccxt_config)
         cex.load_markets()
         markets = cex.markets
     else:

@@ -22,6 +22,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from core.common.proxy import binance_proxy_url
 from core.data.exchange.binance_usdm import BinanceUsdmAdapter
 from core.data.feed import LiveFeed
 from core.data.memory_cache import MemoryCache
@@ -42,7 +43,7 @@ from core.strategy import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("paper_runner")
 
-_PROXY = "http://127.0.0.1:57777"
+_PROXY = binance_proxy_url()
 _SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 _INITIAL_CASH = 10_000.0
 

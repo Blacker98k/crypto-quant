@@ -11,34 +11,54 @@ def paper_metrics(
     *,
     since_ms: int,
     until_ms: int,
+    strategies: list[str] | None = None,
 ) -> dict[str, Any]:
     """Aggregate paper-trading activity in a half-open time window."""
     return {
         "since_ms": since_ms,
         "until_ms": until_ms,
-        "orders": _order_metrics(conn, since_ms, until_ms),
-        "fills": _fill_metrics(conn, since_ms, until_ms),
+        "orders": _order_metrics(conn, since_ms, until_ms, strategies),
+        "fills": _fill_metrics(conn, since_ms, until_ms, strategies),
         "risk_events": _risk_event_metrics(conn, since_ms, until_ms),
-        "positions": _position_metrics(conn),
-        "symbols": _symbols(conn, since_ms, until_ms),
+        "positions": _position_metrics(conn, strategies),
+        "symbols": _symbols(conn, since_ms, until_ms, strategies),
     }
 
 
-def _order_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dict[str, Any]:
+def _strategy_filter(alias: str, strategies: list[str] | None) -> tuple[str, list[str]]:
+    if not strategies:
+        return "", []
+    placeholders = ",".join("?" for _ in strategies)
+    return f" AND {alias}.strategy_version IN ({placeholders})", list(strategies)
+
+
+def _order_metrics(
+    conn: sqlite3.Connection,
+    since_ms: int,
+    until_ms: int,
+    strategies: list[str] | None,
+) -> dict[str, Any]:
+    strategy_sql, strategy_params = _strategy_filter("orders", strategies)
     rows = conn.execute(
         "SELECT status, COUNT(*) AS n FROM orders "
-        "WHERE placed_at >= ? AND placed_at < ? GROUP BY status ORDER BY status",
-        (since_ms, until_ms),
+        f"WHERE placed_at >= ? AND placed_at < ?{strategy_sql} GROUP BY status ORDER BY status",
+        (since_ms, until_ms, *strategy_params),
     ).fetchall()
     by_status = {str(row["status"]): int(row["n"]) for row in rows}
     return {"total": sum(by_status.values()), "by_status": by_status}
 
 
-def _fill_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dict[str, Any]:
+def _fill_metrics(
+    conn: sqlite3.Connection,
+    since_ms: int,
+    until_ms: int,
+    strategies: list[str] | None,
+) -> dict[str, Any]:
+    strategy_sql, strategy_params = _strategy_filter("o", strategies)
     rows = conn.execute(
         "SELECT f.price, f.quantity, f.fee, o.side FROM fills f "
-        "JOIN orders o ON f.order_id = o.id WHERE f.ts >= ? AND f.ts < ?",
-        (since_ms, until_ms),
+        f"JOIN orders o ON f.order_id = o.id WHERE f.ts >= ? AND f.ts < ?{strategy_sql}",
+        (since_ms, until_ms, *strategy_params),
     ).fetchall()
     buy_notional = 0.0
     sell_notional = 0.0
@@ -52,7 +72,7 @@ def _fill_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dic
             sell_notional += notional
     filled_notional = buy_notional + sell_notional
     net_cash_flow = sell_notional - buy_notional - fees
-    realized_pnl = _realized_pnl_from_fills(conn, since_ms, until_ms)
+    realized_pnl = _realized_pnl_from_fills(conn, since_ms, until_ms, strategies)
     return {
         "total": len(rows),
         "filled_notional": _round_money(filled_notional),
@@ -65,13 +85,19 @@ def _fill_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> dic
     }
 
 
-def _realized_pnl_from_fills(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> float:
+def _realized_pnl_from_fills(
+    conn: sqlite3.Connection,
+    since_ms: int,
+    until_ms: int,
+    strategies: list[str] | None,
+) -> float:
+    strategy_sql, strategy_params = _strategy_filter("o", strategies)
     rows = conn.execute(
         "SELECT f.id, f.price, f.quantity, f.ts, o.side, o.strategy_version, s.symbol "
         "FROM fills f JOIN orders o ON f.order_id = o.id "
         "LEFT JOIN symbols s ON o.symbol_id = s.id "
-        "WHERE f.ts < ? ORDER BY f.ts, f.id",
-        (until_ms,),
+        f"WHERE f.ts < ?{strategy_sql} ORDER BY f.ts, f.id",
+        (until_ms, *strategy_params),
     ).fetchall()
     positions: dict[tuple[str, str], dict[str, float | str | None]] = {}
     realized = 0.0
@@ -131,9 +157,11 @@ def _risk_event_metrics(conn: sqlite3.Connection, since_ms: int, until_ms: int) 
     return {"total": sum(by_severity.values()), "by_severity": by_severity}
 
 
-def _position_metrics(conn: sqlite3.Connection) -> dict[str, Any]:
+def _position_metrics(conn: sqlite3.Connection, strategies: list[str] | None) -> dict[str, Any]:
+    strategy_sql, strategy_params = _strategy_filter("positions", strategies)
     rows = conn.execute(
-        "SELECT qty, current_price, avg_entry_price FROM positions WHERE closed_at IS NULL"
+        f"SELECT qty, current_price, avg_entry_price FROM positions WHERE closed_at IS NULL{strategy_sql}",
+        strategy_params,
     ).fetchall()
     open_notional = 0.0
     for row in rows:
@@ -142,18 +170,19 @@ def _position_metrics(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"open": len(rows), "open_notional": _round_money(open_notional)}
 
 
-def _symbols(conn: sqlite3.Connection, since_ms: int, until_ms: int) -> list[str]:
+def _symbols(conn: sqlite3.Connection, since_ms: int, until_ms: int, strategies: list[str] | None) -> list[str]:
+    strategy_sql, strategy_params = _strategy_filter("o", strategies)
     rows = conn.execute(
         "SELECT DISTINCT s.symbol FROM orders o "
         "LEFT JOIN symbols s ON o.symbol_id = s.id "
-        "WHERE o.placed_at >= ? AND o.placed_at < ? AND s.symbol IS NOT NULL "
+        f"WHERE o.placed_at >= ? AND o.placed_at < ? AND s.symbol IS NOT NULL{strategy_sql} "
         "UNION "
         "SELECT DISTINCT s.symbol FROM fills f "
         "JOIN orders o ON f.order_id = o.id "
         "LEFT JOIN symbols s ON o.symbol_id = s.id "
-        "WHERE f.ts >= ? AND f.ts < ? AND s.symbol IS NOT NULL "
+        f"WHERE f.ts >= ? AND f.ts < ? AND s.symbol IS NOT NULL{strategy_sql} "
         "ORDER BY symbol",
-        (since_ms, until_ms, since_ms, until_ms),
+        (since_ms, until_ms, *strategy_params, since_ms, until_ms, *strategy_params),
     ).fetchall()
     return [str(row["symbol"]) for row in rows]
 

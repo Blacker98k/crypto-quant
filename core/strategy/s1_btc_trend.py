@@ -268,8 +268,8 @@ class S1BtcEthTrend(Strategy):
         公式：仓位价值 = 总资金 × 单笔风险% / (止损距离 / 入场价)
         合约张数 = 仓位价值 / 入场价
         """
-        # Phase 1: 模拟总资金 5000 USDT
-        equity = 5000.0
+        # Use runtime account equity so research, dashboard paper, and live sizing stay aligned.
+        equity = ctx.account_equity
         raw_risk_amount = equity * self.per_trade_risk_pct
         position_value = raw_risk_amount / (risk_per_unit / entry_price)
         size = position_value / entry_price

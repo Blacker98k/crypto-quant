@@ -274,6 +274,7 @@ def test_dashboard_status_includes_risk_event_counts(
     payload = _call_route(app, "/api/status")
 
     assert payload["risk_events_n"] == 2
+    assert payload["raw_risk_events_n"] == 4
     assert payload["critical_risk_events_n"] == 1
 
 
@@ -509,6 +510,57 @@ def test_dashboard_status_reconciles_positions_fees_and_margin(
     assert payload["available_balance"] == 9_856.0
 
 
+def test_dashboard_positions_preserve_low_price_precision(
+    tmp_db: sqlite3.Connection,
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "GALAUSDT",
+                "type": "perp",
+                "base": "GALA",
+                "quote": "USDT",
+                "tick_size": 0.000001,
+                "lot_size": 1.0,
+                "min_notional": 5.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("GALAUSDT")
+    assert symbol is not None
+    repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "S2_altcoin_reversal",
+            "strategy_version": "S2_altcoin_reversal",
+            "opening_signal_id": None,
+            "side": "long",
+            "qty": 1000.0,
+            "avg_entry_price": 0.004251,
+            "current_price": 0.004251,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": None,
+            "opened_at": 1_700_000_000_000,
+            "closed_at": None,
+        }
+    )
+    cache = MemoryCache(max_bars=10)
+    cache.update_latest_price("GALAUSDT", 0.004267)
+
+    positions = _compute_positions(repo, cache)
+
+    assert positions[0]["entry_price"] == 0.004251
+    assert positions[0]["current_price"] == 0.004267
+
+
 def test_dashboard_status_marks_stale_feeder_unhealthy(
     tmp_path: Path, tmp_db: sqlite3.Connection
 ) -> None:
@@ -620,7 +672,7 @@ async def test_live_feeder_falls_back_to_direct_rest_when_proxy_fails(
     await feeder._refresh_universe()
 
     assert top_symbol_proxies == ["http://127.0.0.1:57777", ""]
-    assert kline_proxies == [""]
+    assert kline_proxies == ["", "", "", ""]
     assert feeder._proxy == ""
     assert feeder._symbols == ["BTCUSDT"]
 
@@ -722,6 +774,57 @@ async def test_live_feeder_rest_bar_fallback_publishes_new_closed_bars_once(
     await feeder._backfill_recent_1m(["BTCUSDT"], publish=True)
 
     assert [bar.ts for bar in published] == [bar.ts for bar in bars]
+    assert cache.latest_price("BTCUSDT") == 50_015.0
+
+
+async def test_live_feeder_initial_backfill_publishes_only_latest_closed_bar(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: Any
+) -> None:
+    bars = [
+        Bar(
+            symbol="BTCUSDT",
+            timeframe="1m",
+            ts=1_700_000_000_000,
+            o=50_000.0,
+            h=50_010.0,
+            l=49_990.0,
+            c=50_005.0,
+            v=1.0,
+            q=50_005.0,
+            closed=True,
+        ),
+        Bar(
+            symbol="BTCUSDT",
+            timeframe="1m",
+            ts=1_700_000_060_000,
+            o=50_005.0,
+            h=50_020.0,
+            l=49_995.0,
+            c=50_015.0,
+            v=1.0,
+            q=50_015.0,
+            closed=True,
+        ),
+    ]
+
+    async def _fetch_klines(
+        symbol: str, timeframe: str, *, proxy: str = "", limit: int = 20
+    ) -> list[Bar]:
+        return bars
+
+    monkeypatch.setattr(dashboard_server, "fetch_binance_recent_klines", _fetch_klines)
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, symbols=["BTCUSDT"])
+    published: list[Bar] = []
+    feeder._on_bar = published.append  # type: ignore[method-assign]
+
+    await feeder._backfill_recent_1m(["BTCUSDT"], publish_latest=True)
+    await feeder._backfill_recent_1m(["BTCUSDT"], publish_latest=True)
+
+    assert [bar.ts for bar in published] == [bars[-1].ts]
     assert cache.latest_price("BTCUSDT") == 50_015.0
 
 

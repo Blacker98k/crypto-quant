@@ -1,0 +1,38 @@
+name: doc-sync-check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  doc-sync-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check code and docs changed together
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(git diff --name-only "$base" "$head")"
+
+          require_doc() {
+            local code_pattern="$1"
+            local doc_pattern="$2"
+            local label="$3"
+            if printf '%s\n' "$changed" | grep -Eq "$code_pattern"; then
+              if ! printf '%s\n' "$changed" | grep -Eq "$doc_pattern"; then
+                echo "::error::$label changed without the required documentation update"
+                exit 1
+              fi
+            fi
+          }
+
+          require_doc '^core/strategy/.*\.py$' '^docs/04-接口文档/01-策略接口\.md$|^docs/03-详细设计/strategies/' 'strategy layer'
+          require_doc '^core/data/.*\.py$' '^docs/04-接口文档/02-数据接口\.md$|^docs/03-详细设计/01-数据层\.md$' 'data layer'
+          require_doc '^core/execution/.*\.py$' '^docs/04-接口文档/03-订单接口\.md$|^docs/03-详细设计/04-执行层\.md$' 'execution layer'
+          require_doc '^core/risk/.*\.py$' '^docs/07-决策日志/ADR-008-三层风控冗余\.md$|^docs/03-详细设计/04-执行层\.md$' 'risk layer'

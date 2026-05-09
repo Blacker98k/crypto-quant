@@ -10,6 +10,7 @@ import time
 
 import pandas as pd
 
+from core.common.proxy import binance_proxy_url
 from core.data.exchange.binance_usdm import BinanceUsdmAdapter
 
 
@@ -29,7 +30,7 @@ async def fetch_and_analyze():
     print("  S3 资金费率分析")
     print("=" * 60)
 
-    ex = BinanceUsdmAdapter(proxy="http://127.0.0.1:57777", timeout_ms=30000)
+    ex = BinanceUsdmAdapter(proxy=binance_proxy_url(), timeout_ms=30000)
 
     symbols = ["BTCUSDT", "ETHUSDT"]
     now = int(time.time() * 1000)

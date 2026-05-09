@@ -196,7 +196,7 @@ class S2AltcoinReversal(Strategy):
 
     def _calc_position_size(self, entry_price: float, risk_per_unit: float, ctx: StrategyContext) -> float:
         """基于风险计算仓位。"""
-        equity = 5000.0
+        equity = ctx.account_equity
         risk_amount = equity * self.per_trade_risk_pct
         if risk_per_unit <= 0 or entry_price <= 0:
             return 0

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -30,8 +31,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.common.proxy import binance_proxy_url
 from core.data.exchange.base import Bar
 from core.data.exchange.binance_spot import BinanceSpotAdapter
+from core.data.feed import LiveFeed
 from core.data.memory_cache import MemoryCache
 from core.data.parquet_io import ParquetIO
 from core.data.sqlite_repo import SqliteRepo
@@ -54,13 +57,14 @@ from dashboard.paper_trading import (
     DEFAULT_TOP30_USDT,
     UNIVERSE_NAME,
     DashboardPaperTrader,
+    default_dashboard_strategies,
     fetch_binance_recent_klines,
     fetch_binance_top_usdt_symbols,
     upsert_dashboard_universe,
 )
 
 # 代理配置（根据环境变量或写死）
-_PROXY = os.getenv("CQ_BINANCE_PROXY", "http://127.0.0.1:57777").strip()
+_PROXY = binance_proxy_url()
 _SYMBOLS = DEFAULT_TOP30_USDT
 _FUTURES_PRICE_URL = "https://fapi.binance.com/fapi/v1/ticker/price"
 _FUTURES_24H_URL = "https://fapi.binance.com/fapi/v1/ticker/24hr"
@@ -87,6 +91,32 @@ def _start_of_week_ts(now_s: float | None = None) -> int:
 
 
 def _pnl_in_window(repo: SqliteRepo, since_ms: int, positions: list[dict] | None = None) -> dict:
+    return _pnl_in_window_for_strategies(repo, since_ms, positions=positions)
+
+
+def _pnl_in_window_for_strategies(
+    repo: SqliteRepo,
+    since_ms: int,
+    positions: list[dict] | None = None,
+    *,
+    strategies: list[str] | None = None,
+) -> dict:
+    if strategies:
+        until_ms = int(time.time() * 1000)
+        realized_pnl = _sum_position_realized_pnl(
+            repo,
+            strategies=strategies,
+            since_ms=since_ms,
+            until_ms=until_ms,
+        ) - _sum_fees_paid(repo, since_ms=since_ms, until_ms=until_ms, strategies=strategies)
+        unrealized_pnl = _positions_unrealized_pnl(positions or [])
+        return {
+            "n": _count_fills(repo, since_ms=since_ms, until_ms=until_ms, strategies=strategies),
+            "pnl": round(realized_pnl + unrealized_pnl, 2),
+            "realized_pnl": round(realized_pnl, 2),
+            "unrealized_pnl": round(unrealized_pnl, 2),
+            "roi": 0.0,
+        }
     metrics = paper_metrics(repo._conn, since_ms=since_ms, until_ms=int(time.time() * 1000))
     realized_pnl = float(metrics["fills"]["cash_pnl"])
     unrealized_pnl = _positions_unrealized_pnl(positions or [])
@@ -169,6 +199,7 @@ class LiveDataFeeder:
         self._last_bar_ms = 0
         self._bar_stale_after_ms = 90_000
         self._rest_bar_seen_ts: dict[tuple[str, str], int] = {}
+        self._strategy_timeframes = ("1m", "1h", "4h", "1d")
         self._running = False
         self._task: asyncio.Task | None = None
         self._price_task: asyncio.Task | None = None
@@ -213,7 +244,8 @@ class LiveDataFeeder:
     def _build_ws(self) -> WsSubscriber:
         self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
         for sym in self._symbols:
-            self._ws.subscribe_candles(sym, "1m", self._on_bar)
+            for timeframe in self._strategy_timeframes:
+                self._ws.subscribe_candles(sym, timeframe, self._on_bar)
         self._ws.subscribe_tickers(self._symbols)
         return self._ws
 
@@ -273,7 +305,7 @@ class LiveDataFeeder:
         if self._ws:
             await self._ws.close()
         self._last_bar_ms = 0
-        await self._backfill_recent_1m(self._symbols)
+        await self._backfill_recent_bars(self._symbols)
         await self._connect_ws()
 
     def _on_bar(self, bar) -> None:
@@ -331,7 +363,7 @@ class LiveDataFeeder:
             if age_ms is not None and age_ms <= 45_000:
                 continue
             try:
-                await self._backfill_recent_1m(self._symbols, publish=True)
+                await self._backfill_recent_bars(self._symbols, publish=True)
             except Exception as exc:
                 self._repo.log_run("dashboard_rest_bar_fallback", "fail", note=str(exc)[:200])
 
@@ -395,38 +427,81 @@ class LiveDataFeeder:
         self._symbols = symbols
         if self._trader:
             self._trader.replace_symbols(symbols)
-        await self._backfill_recent_1m(symbols)
+        await self._backfill_recent_bars(symbols, publish_latest=True)
 
-    async def _backfill_recent_1m(self, symbols: list[str], *, publish: bool = False) -> None:
+    async def _backfill_recent_bars(
+        self,
+        symbols: list[str],
+        *,
+        publish: bool = False,
+        publish_latest: bool = False,
+    ) -> None:
+        await self._backfill_timeframes(
+            symbols,
+            timeframes=self._strategy_timeframes,
+            publish=publish,
+            publish_latest=publish_latest,
+        )
+
+    async def _backfill_recent_1m(
+        self,
+        symbols: list[str],
+        *,
+        publish: bool = False,
+        publish_latest: bool = False,
+    ) -> None:
+        await self._backfill_timeframes(
+            symbols,
+            timeframes=("1m",),
+            publish=publish,
+            publish_latest=publish_latest,
+        )
+
+    async def _backfill_timeframes(
+        self,
+        symbols: list[str],
+        *,
+        timeframes: tuple[str, ...],
+        publish: bool = False,
+        publish_latest: bool = False,
+    ) -> None:
         for symbol in symbols:
-            try:
-                bars = await self._call_binance_with_proxy_fallback(
-                    f"binance_1m_warmup_{symbol}",
-                    lambda proxy, symbol=symbol: fetch_binance_recent_klines(
-                        symbol, "1m", proxy=proxy, limit=20
-                    ),
-                )
-            except Exception as exc:
-                self._repo.log_run(f"binance_1m_warmup_{symbol}", "fail", note=str(exc)[:200])
-                continue
-            for bar in bars:
-                self._cache.push_bar(bar)
-            if bars:
-                self._parquet_io.write_bars(bars)
-                closed_bars = [bar for bar in bars if bar.closed]
-                if not closed_bars:
+            for timeframe in timeframes:
+                limit = 120 if timeframe in {"1h", "4h", "1d"} else 20
+                try:
+                    bars = await self._call_binance_with_proxy_fallback(
+                        f"binance_{timeframe}_warmup_{symbol}",
+                        lambda proxy, symbol=symbol, timeframe=timeframe, limit=limit: fetch_binance_recent_klines(
+                            symbol, timeframe, proxy=proxy, limit=limit
+                        ),
+                    )
+                except Exception as exc:
+                    self._repo.log_run(f"binance_{timeframe}_warmup_{symbol}", "fail", note=str(exc)[:200])
                     continue
-                latest_ts = max(bar.ts for bar in closed_bars)
-                key = (symbol, "1m")
-                if publish:
-                    last_seen = self._rest_bar_seen_ts.get(key, 0)
-                    for bar in sorted(closed_bars, key=lambda item: item.ts):
-                        if bar.ts > last_seen:
-                            self._on_bar(bar)
-                    self._rest_bar_seen_ts[key] = max(latest_ts, last_seen)
-                else:
-                    self._rest_bar_seen_ts[key] = max(latest_ts, self._rest_bar_seen_ts.get(key, 0))
-                self._repo.log_run(f"binance_1m_warmup_{symbol}", "ok")
+                for bar in bars:
+                    self._cache.push_bar(bar)
+                if bars:
+                    self._parquet_io.write_bars(bars)
+                    closed_bars = [bar for bar in bars if bar.closed]
+                    if not closed_bars:
+                        continue
+                    latest_ts = max(bar.ts for bar in closed_bars)
+                    key = (symbol, timeframe)
+                    if publish_latest:
+                        latest_bar = max(closed_bars, key=lambda item: item.ts)
+                        last_seen = self._rest_bar_seen_ts.get(key, 0)
+                        if latest_bar.ts > last_seen:
+                            self._on_bar(latest_bar)
+                        self._rest_bar_seen_ts[key] = max(latest_ts, last_seen)
+                    elif publish:
+                        last_seen = self._rest_bar_seen_ts.get(key, 0)
+                        for bar in sorted(closed_bars, key=lambda item: item.ts):
+                            if bar.ts > last_seen:
+                                self._on_bar(bar)
+                        self._rest_bar_seen_ts[key] = max(latest_ts, last_seen)
+                    else:
+                        self._rest_bar_seen_ts[key] = max(latest_ts, self._rest_bar_seen_ts.get(key, 0))
+                    self._repo.log_run(f"binance_{timeframe}_warmup_{symbol}", "ok")
 
     async def stop(self) -> None:
         """关闭连接。"""
@@ -468,6 +543,7 @@ def create_app(
     app.state.paper_leverage = _PAPER_MARGIN_LEVERAGE
     app.state.balance_history: list[dict] = []
     app.state.trader = trader
+    app.state.active_strategy_ids = trader.strategies if trader else None
     app.state.small_live_config_path = Path(os.getenv("CQ_SMALL_LIVE_CONFIG", "config/small_live.yml"))
 
     # ─── REST API ──────────────────────────────────────────────────────────
@@ -476,12 +552,14 @@ def create_app(
     def api_status():
         prices = cache.latest_prices_all()
         orders = repo.get_open_orders()
-        positions = _compute_positions(repo, cache)
+        active_strategies = app.state.active_strategy_ids
+        positions = _compute_positions(repo, cache, strategies=active_strategies)
         account = _account_snapshot(
             repo,
             positions,
             initial_balance=app.state.initial_balance,
             leverage=app.state.paper_leverage,
+            strategies=active_strategies,
         )
         risk_counts = _risk_event_counts(repo)
         running = _feeder_running(feeder)
@@ -512,9 +590,20 @@ def create_app(
             "open_positions_n": len(positions),
             "open_orders_n": len(orders),
             "risk_events_n": risk_counts["total"],
+            "raw_risk_events_n": risk_counts["raw_total"],
             "critical_risk_events_n": risk_counts["critical"],
-            "day_pnl": _pnl_in_window(repo, _start_of_day_ts(), positions),
-            "week_pnl": _pnl_in_window(repo, _start_of_week_ts(), positions),
+            "day_pnl": _pnl_in_window_for_strategies(
+                repo,
+                _start_of_day_ts(),
+                positions,
+                strategies=active_strategies,
+            ),
+            "week_pnl": _pnl_in_window_for_strategies(
+                repo,
+                _start_of_week_ts(),
+                positions,
+                strategies=active_strategies,
+            ),
             "latest_prices": prices,
         }
 
@@ -588,28 +677,37 @@ def create_app(
 
     @app.get("/api/orders")
     def api_orders(limit: int = 50, status: str = ""):
+        clauses = []
+        params: list[object] = []
         if status:
-            rows = repo._conn.execute(
-                "SELECT o.*, s.symbol as sym FROM orders o "
-                "LEFT JOIN symbols s ON o.symbol_id = s.id "
-                "WHERE o.status = ? ORDER BY o.placed_at DESC LIMIT ?",
-                (status, limit),
-            ).fetchall()
-        else:
-            rows = repo._conn.execute(
-                "SELECT o.*, s.symbol as sym FROM orders o "
-                "LEFT JOIN symbols s ON o.symbol_id = s.id "
-                "ORDER BY o.placed_at DESC LIMIT ?", (limit,),
-            ).fetchall()
+            clauses.append("o.status = ?")
+            params.append(status)
+        if app.state.active_strategy_ids:
+            placeholders = ",".join("?" for _ in app.state.active_strategy_ids)
+            clauses.append(f"o.strategy_version IN ({placeholders})")
+            params.extend(app.state.active_strategy_ids)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = repo._conn.execute(
+            "SELECT o.*, s.symbol as sym FROM orders o "
+            "LEFT JOIN symbols s ON o.symbol_id = s.id "
+            f"{where} ORDER BY o.placed_at DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
         return [_order_row(r) for r in rows]
 
     @app.get("/api/fills")
     def api_fills(limit: int = 50):
+        where = ""
+        params: list[object] = []
+        if app.state.active_strategy_ids:
+            placeholders = ",".join("?" for _ in app.state.active_strategy_ids)
+            where = f"WHERE o.strategy_version IN ({placeholders})"
+            params.extend(app.state.active_strategy_ids)
         rows = repo._conn.execute(
             "SELECT f.*, s.symbol as sym, o.side, o.strategy_version as strategy "
             "FROM fills f JOIN orders o ON f.order_id = o.id "
             "LEFT JOIN symbols s ON o.symbol_id = s.id "
-            "ORDER BY f.ts DESC LIMIT ?", (limit,),
+            f"{where} ORDER BY f.ts DESC LIMIT ?", (*params, limit),
         ).fetchall()
         return [{"id": r["id"], "order_id": r["order_id"],
                  "symbol": r["sym"] or "?", "side": r["side"],
@@ -621,7 +719,7 @@ def create_app(
 
     @app.get("/api/positions")
     def api_positions():
-        return _compute_positions(repo, cache)
+        return _compute_positions(repo, cache, strategies=app.state.active_strategy_ids)
 
     @app.get("/api/balance_history")
     def api_balance_history(limit: int = 500):
@@ -637,7 +735,12 @@ def create_app(
     def api_paper_metrics(since_ms: int | None = None, until_ms: int | None = None):
         start_ms = _start_of_day_ts() if since_ms is None else since_ms
         end_ms = int(time.time() * 1000) + 1 if until_ms is None else until_ms
-        return paper_metrics(repo._conn, since_ms=start_ms, until_ms=end_ms)
+        return paper_metrics(
+            repo._conn,
+            since_ms=start_ms,
+            until_ms=end_ms,
+            strategies=app.state.active_strategy_ids,
+        )
 
     @app.get("/api/data_health")
     def api_data_health(limit: int = 100, since_ms: int | None = None):
@@ -723,14 +826,29 @@ def create_app(
 
     @app.get("/api/strategies")
     def api_strategies():
+        active_strategies = app.state.active_strategy_ids
+        strategy_where = ""
+        strategy_params: list[object] = []
+        if active_strategies:
+            placeholders = ",".join("?" for _ in active_strategies)
+            strategy_where = f"WHERE strategy_version IN ({placeholders})"
+            strategy_params.extend(active_strategies)
         rows = repo._conn.execute(
             "SELECT strategy_version, COUNT(*) AS orders_count "
-            "FROM orders GROUP BY strategy_version ORDER BY strategy_version"
+            f"FROM orders {strategy_where} GROUP BY strategy_version ORDER BY strategy_version",
+            strategy_params,
         ).fetchall()
+        fill_where = ""
+        fill_params: list[object] = []
+        if active_strategies:
+            placeholders = ",".join("?" for _ in active_strategies)
+            fill_where = f"WHERE o.strategy_version IN ({placeholders})"
+            fill_params.extend(active_strategies)
         fills = repo._conn.execute(
             "SELECT o.strategy_version, COUNT(f.id) AS fills_count "
             "FROM orders o LEFT JOIN fills f ON f.order_id = o.id "
-            "GROUP BY o.strategy_version"
+            f"{fill_where} GROUP BY o.strategy_version",
+            fill_params,
         ).fetchall()
         fills_by_strategy = {row["strategy_version"]: row["fills_count"] for row in fills}
         pnl_by_strategy = _strategy_pnl_summary(repo, cache)
@@ -808,6 +926,10 @@ def create_app(
         if strategy_id:
             clauses.append("o.strategy_version = ?")
             params.append(strategy_id)
+        elif app.state.active_strategy_ids:
+            placeholders = ",".join("?" for _ in app.state.active_strategy_ids)
+            clauses.append(f"o.strategy_version IN ({placeholders})")
+            params.extend(app.state.active_strategy_ids)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = repo._conn.execute(
             "SELECT f.*, s.symbol as sym, o.side, o.strategy_version as strategy "
@@ -872,12 +994,13 @@ def create_app(
         try:
             while True:
                 prices = cache.latest_prices_all()
-                positions = _compute_positions(repo, cache)
+                positions = _compute_positions(repo, cache, strategies=app.state.active_strategy_ids)
                 account = _account_snapshot(
                     repo,
                     positions,
                     initial_balance=app.state.initial_balance,
                     leverage=app.state.paper_leverage,
+                    strategies=app.state.active_strategy_ids,
                 )
                 _append_balance_history(app.state.balance_history, account)
                 recent_orders = repo._conn.execute(
@@ -976,7 +1099,12 @@ def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
         "FROM risk_events "
         f"WHERE {_actionable_risk_sql()}"
     ).fetchone()
-    return {"total": int(row["total"] or 0), "critical": int(row["critical"] or 0)}
+    raw_total = repo._conn.execute("SELECT COUNT(*) AS n FROM risk_events").fetchone()
+    return {
+        "total": int(row["total"] or 0),
+        "raw_total": int(raw_total["n"] or 0),
+        "critical": int(row["critical"] or 0),
+    }
 
 
 def _data_source_identity(repo: SqliteRepo) -> dict[str, object]:
@@ -1126,12 +1254,13 @@ def _small_live_readiness(
     feeder: LiveDataFeeder,
     config: SmallLiveConfig,
 ) -> Any:
-    positions = _compute_positions(repo, cache)
+    positions = _compute_positions(repo, cache, strategies=app.state.active_strategy_ids)
     account = _account_snapshot(
         repo,
         positions,
         initial_balance=app.state.initial_balance,
         leverage=app.state.paper_leverage,
+        strategies=app.state.active_strategy_ids,
     )
     paper_status = PaperStatus(
         simulation_running=_feeder_running(feeder),
@@ -1213,9 +1342,11 @@ def _small_live_handle_summary(handle: OrderHandle) -> dict[str, object]:
     }
 
 
-def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
+def _compute_positions(repo: SqliteRepo, cache: MemoryCache, *, strategies: list[str] | None = None) -> list[dict]:
     positions = []
     for row in repo.list_open_positions():
+        if strategies and str(row["strategy_version"] or "") not in strategies:
+            continue
         symbol = repo.get_symbol_by_id(int(row["symbol_id"]))
         sym = str(symbol["symbol"]) if symbol is not None else "BTCUSDT"
         qty = float(row["qty"])
@@ -1235,13 +1366,23 @@ def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
                 "position_side": position_side,
                 "strategy": row["strategy_version"],
                 "qty": round(qty, 6),
-                "entry_price": round(entry, 2),
-                "current_price": round(cur, 2),
+                "entry_price": _round_display_price(entry, symbol),
+                "current_price": _round_display_price(cur, symbol),
                 "unrealized_pnl": round(unrealized, 2),
                 "realized_pnl": round(float(row["realized_pnl"] or 0.0), 2),
             }
         )
     return positions
+
+
+def _round_display_price(value: float, symbol: sqlite3.Row | None) -> float:
+    tick_size = float(symbol["tick_size"] or 0.0) if symbol is not None else 0.0
+    if tick_size > 0 and tick_size < 1:
+        decimals = min(8, max(2, math.ceil(-math.log10(tick_size))))
+        return round(value, decimals)
+    if abs(value) < 1:
+        return round(value, 8)
+    return round(value, 2)
 
 
 def _strategy_win_rates(repo: SqliteRepo) -> dict[str, float]:
@@ -1349,19 +1490,74 @@ def _strategy_pnl_summary(repo: SqliteRepo, cache: MemoryCache) -> dict[str, dic
     return summary
 
 
-def _sum_position_realized_pnl(repo: SqliteRepo) -> float:
-    value = repo._conn.execute("SELECT SUM(realized_pnl) FROM positions").fetchone()[0]
+def _sum_position_realized_pnl(
+    repo: SqliteRepo,
+    *,
+    strategies: list[str] | None = None,
+    since_ms: int | None = None,
+    until_ms: int | None = None,
+) -> float:
+    clauses: list[str] = []
+    params: list[object] = []
+    if strategies:
+        placeholders = ",".join("?" for _ in strategies)
+        clauses.append(f"strategy_version IN ({placeholders})")
+        params.extend(strategies)
+    if since_ms is not None:
+        clauses.append("COALESCE(closed_at, opened_at) >= ?")
+        params.append(since_ms)
+    if until_ms is not None:
+        clauses.append("COALESCE(closed_at, opened_at) < ?")
+        params.append(until_ms)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    value = repo._conn.execute(f"SELECT SUM(realized_pnl) FROM positions{where}", params).fetchone()[0]
     return float(value or 0.0)
 
 
-def _sum_fees_paid(repo: SqliteRepo, since_ms: int = 0, until_ms: int | None = None) -> float:
+def _sum_fees_paid(
+    repo: SqliteRepo,
+    since_ms: int = 0,
+    until_ms: int | None = None,
+    *,
+    strategies: list[str] | None = None,
+) -> float:
     if until_ms is None:
         until_ms = int(time.time() * 1000)
+    strategy_clause = ""
+    params: list[object] = [since_ms, until_ms]
+    if strategies:
+        placeholders = ",".join("?" for _ in strategies)
+        strategy_clause = f" AND o.strategy_version IN ({placeholders})"
+        params.extend(strategies)
     value = repo._conn.execute(
-        "SELECT SUM(fee) FROM fills WHERE ts >= ? AND ts < ?",
-        (since_ms, until_ms),
+        "SELECT SUM(f.fee) FROM fills f "
+        "JOIN orders o ON o.id = f.order_id "
+        f"WHERE f.ts >= ? AND f.ts < ?{strategy_clause}",
+        params,
     ).fetchone()[0]
     return float(value or 0.0)
+
+
+def _count_fills(
+    repo: SqliteRepo,
+    *,
+    since_ms: int,
+    until_ms: int,
+    strategies: list[str] | None = None,
+) -> int:
+    strategy_clause = ""
+    params: list[object] = [since_ms, until_ms]
+    if strategies:
+        placeholders = ",".join("?" for _ in strategies)
+        strategy_clause = f" AND o.strategy_version IN ({placeholders})"
+        params.extend(strategies)
+    value = repo._conn.execute(
+        "SELECT COUNT(f.id) FROM fills f "
+        "JOIN orders o ON o.id = f.order_id "
+        f"WHERE f.ts >= ? AND f.ts < ?{strategy_clause}",
+        params,
+    ).fetchone()[0]
+    return int(value or 0)
 
 
 def _account_snapshot(
@@ -1370,9 +1566,10 @@ def _account_snapshot(
     *,
     initial_balance: float = _INITIAL_USDT_BALANCE,
     leverage: float = _PAPER_MARGIN_LEVERAGE,
+    strategies: list[str] | None = None,
 ) -> dict[str, float]:
-    gross_realized_pnl = _sum_position_realized_pnl(repo)
-    fees_paid = _sum_fees_paid(repo)
+    gross_realized_pnl = _sum_position_realized_pnl(repo, strategies=strategies)
+    fees_paid = _sum_fees_paid(repo, strategies=strategies)
     realized_pnl = gross_realized_pnl - fees_paid
     unrealized_pnl = _positions_unrealized_pnl(positions)
     open_notional = _positions_open_notional(positions)
@@ -1457,12 +1654,26 @@ def main() -> None:
     # 3. 创建 PaperMatchingEngine
     upsert_dashboard_universe(repo, _SYMBOLS)
     engine = PaperMatchingEngine(repo, get_price=lambda s: cache.latest_price(s))
+    live_feed = LiveFeed(parquet_io, repo, cache)
+    active_strategy_names: list[str] = []
+    def current_equity() -> float:
+        positions = _compute_positions(repo, cache, strategies=active_strategy_names or None)
+        return _account_snapshot(
+            repo,
+            positions,
+            initial_balance=_INITIAL_USDT_BALANCE,
+            leverage=_PAPER_MARGIN_LEVERAGE,
+            strategies=active_strategy_names or None,
+        )["equity"]
+
+    dashboard_strategies = default_dashboard_strategies(feed=live_feed, repo=repo, account_equity=current_equity)
+    active_strategy_names = [strategy.name for strategy in dashboard_strategies]
     trader = DashboardPaperTrader(
         repo=repo,
         cache=cache,
         engine=engine,
         symbols=_SYMBOLS,
-        strategy_notional_multipliers={"explore_mean_reversion": 0.5},
+        strategies=dashboard_strategies,
         max_open_notional_usdt=_PAPER_MAX_OPEN_NOTIONAL,
     )
 

@@ -187,6 +187,14 @@ class TestS1BtcEthTrend:
         assert s.volume_spike_mult == 1.2
         assert s.trail_stop_atr_mult == 1.5
 
+    def test_position_size_uses_context_equity(self, sqlite_repo):
+        from core.strategy import S1BtcEthTrend
+
+        s = S1BtcEthTrend()
+        ctx = StrategyContext(data="fake_feed", clock=None, repo=sqlite_repo, strategy_name=s.name, account_equity=20_000.0)
+
+        assert s._calc_position_size(100.0, 10.0, ctx) == 20.0
+
 
 # ─── S2 Altcoin Reversal ───────────────────────────────────────────────────────
 
@@ -215,6 +223,14 @@ class TestS2AltcoinReversal:
         s = S2AltcoinReversal()
         assert s.name == "S2_altcoin_reversal"
         assert s.version == "dev"
+
+    def test_position_size_uses_context_equity(self, sqlite_repo):
+        from core.strategy import S2AltcoinReversal
+
+        s = S2AltcoinReversal()
+        ctx = StrategyContext(data="fake_feed", clock=None, repo=sqlite_repo, strategy_name=s.name, account_equity=20_000.0)
+
+        assert s._calc_position_size(100.0, 10.0, ctx) == 10.0
 
 
 # ─── S3 Pair Trading ─────────────────────────────────────────────────────────
