@@ -1,0 +1,38 @@
+# crypto-quant · 进程级主配置（示例）
+#
+# 复制为 config/config.yml 后修改。config.yml 不在 .gitignore 里——
+# 因为它不含敏感信息；含 secrets 的字段都拆到 secrets.yml。
+
+project:
+  name: crypto-quant
+  version: 0.1.0.dev0
+
+# ─── 日志 ─────────────────────────────────────────────────────────────
+logging:
+  level: INFO              # DEBUG / INFO / WARNING / ERROR / CRITICAL
+  format: json             # json（生产） / pretty（开发期可读）
+  file:
+    path: logs/crypto-quant.log
+    rotate_size_mb: 100
+    keep_files: 14
+
+# ─── 数据存储路径 ─────────────────────────────────────────────────────
+storage:
+  data_root: data           # 整个 data/ 是相对项目根；可改为绝对路径
+  sqlite_path: data/crypto.sqlite
+  parquet_root: data        # data/candles/ data/funding/ 等子目录
+  reports_root: reports
+
+# ─── 时区 ─────────────────────────────────────────────────────────────
+# 内部全部用 UTC 毫秒；这里只影响 Dashboard / 日报的显示
+display:
+  timezone: Asia/Shanghai
+  locale: zh_CN
+
+# ─── 性能调参 ─────────────────────────────────────────────────────────
+performance:
+  memory_cache_bars: 1000             # 每 (symbol, tf) 内存保留 K 线根数
+  parquet_flush_seconds: 60           # WS 收到的已收盘 bar 多久落盘一次
+  parquet_flush_batch: 1000           # 或攒满多少条立即落盘
+  callback_queue_size: 1000           # DataFeed 订阅者回调队列长度
+  callback_overflow_policy: drop_oldest  # block / drop_oldest / drop_newest

@@ -1,0 +1,25 @@
+# crypto-quant · 风控阈值占位（示例）
+#
+# ⚠️ 真实阈值只能在生产机手写 `risk.yml`——此文件 NEVER 被 Agent 改（CODEOWNERS）。
+# 复制为 risk.yml；Agent 只能从 risk.example.yml 推导默认结构。
+
+portfolio:                          # ─── L3 投资组合层 ───────────────────
+  max_leverage: 3                   # 总名义杠杆上限（永续部分）
+  max_symbol_exposure_pct: 0.25    # 单币种敞口 ≤ 25% 总资金
+  daily_loss_circuit_pct: 0.05    # 单日浮亏 ≥ 5% → 熔断 24h
+  max_drawdown_circuit_pct: 0.20  # 总回撤 ≥ 20% → 清仓 + 停机 24h
+  consecutive_loss_half_size: 5   # 连亏 ≥ 5 笔 → 单笔 risk 减半 24h
+
+position:                           # ─── L2 仓位层 ────────────────────────
+  per_trade_risk_pct: 0.01         # S1/S3 单笔风险默认 1%（S2 spec 0.5% 在各自 yml）
+  atr_multiplier: 2.0
+  liquidation_buffer_pct: 0.30    # 强平距离 ≥ 30%
+  kelly_fraction: 0.25
+
+order:                              # ─── L1 订单层 ────────────────────────
+  max_expected_slippage_pct: 0.002 # 市价单预估滑点 > 0.2% → L1 拒或转限价
+  duplicate_signal_ttl_ms: 5000    # 同 strategy+symbol+side 5s 内去重
+
+oms:                                # ─── OMS / 熔断辅助（ADR-003）───────────
+  stop_place_timeout_seconds: 5
+  reconcile_interval_seconds: 300

@@ -1,0 +1,23 @@
+# S2 · 中市值均值回归（示例参数）
+# 完整规则见 docs/03-详细设计/strategies/S2-中市值均值回归.md
+
+strategy:
+  id: s2_midcap_mean_rev
+  universe: observation              # core 20 + 剔除 BTC/ETH 等由 Universe 脚本提供
+  market: perp
+  timeframes:
+    signal: 1h
+    trend_filter: 1d
+  leverage_target: 2
+
+entry:
+  rsi_period: 14
+  rsi_upper: 25                      # RSI < 25 视作超卖
+  bb_period: 20
+  bb_std: 2.0
+  max_intrabar_drop_pct: 0.05        # 单根 1h 跌幅 > 5% 不接飞刀
+
+risk:
+  per_trade_risk_pct: 0.005          # 单笔风险 0.5%（spec）
+  hard_stop_pct: 0.05                # 固定 -5% 止损
+  max_concurrent_positions: 5
