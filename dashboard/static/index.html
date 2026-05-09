@@ -558,21 +558,16 @@
   .data-table { width:100%; border-collapse:collapse; }
   .data-table thead th {
     text-align:left;
-    padding:6px 14px 8px;
+    padding:10px 14px 8px;
     font-size:11px; font-weight:500;
     color:var(--text-3);
-    /* 透明背景：继承 card 白底（含 card-header 渐变）；不再是独立白条 */
+    /* 透明背景：继承卡片底（含 card-header 淡渐变），与卡头融为一体 */
     background:transparent;
-    /* 取消 thead 自己的硬下边线，避免和 card-header 的底线叠成两道 */
+    /* 不再使用硬下边线，靠表头与表身字号 / 字色差自然分层 */
     border-bottom:0;
-    /* 中文不需要 uppercase / 大字距 */
     letter-spacing:0; text-transform:none;
     position:sticky; top:0; z-index:1;
     white-space:nowrap;
-  }
-  /* sticky 时给 thead 加一个白底 fallback，避免滚动遮挡内容 */
-  .data-table thead th::after {
-    content:""; position:absolute; left:0; right:0; bottom:0; height:0;
   }
   /* 第一列 / 末列与 card-header 的 18px padding 对齐 */
   .data-table thead th:first-child,
@@ -861,9 +856,9 @@
             </button>
             <div class="menu-divider"></div>
             <div class="menu-section">调试 · 仅 Paper</div>
-            <button class="menu-item danger" @click="randomOrder(); navMenuOpen=false" title="本次没有核心策略信号时，可手动触发评估生成一笔模拟单（仅用于联调）">
-              触发评估（手动）
-              <span class="menu-item-meta">DEBUG</span>
+            <button class="menu-item" @click="randomOrder(); navMenuOpen=false" title="触发一次核心策略评估，不会伪造成交">
+              触发评估
+              <span class="menu-item-meta">S1/S2</span>
             </button>
           </div>
         </div>
@@ -1951,8 +1946,13 @@ createApp({
       await loadAll(); flash('模拟已停止')
     }
     const randomOrder = async () => {
-      await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'random_order'})})
-      await loadAll(); flash('已手动触发评估，注入一笔模拟单')
+      const payload = await fetch(API+'/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'random_order'})}).then(r=>r.json())
+      await loadAll()
+      if ((payload.orders_generated || 0) > 0) {
+        flash('已产生核心策略模拟订单')
+      } else {
+        flash('本次没有核心策略信号')
+      }
     }
 
     const ma = (data, period) => data.map((_, index) => {
