@@ -314,6 +314,42 @@ def test_dashboard_paper_trader_order_cap_throttles_without_risk_event(
     assert matrix["cells"][0]["throttle_reason"] == "symbol_order_cap"
 
 
+def test_dashboard_paper_trader_notional_cap_blocks_adds_but_allows_reductions(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+        max_open_notional_usdt=25.0,
+    )
+    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 103, 99, 102, 12, closed=True)
+    third = Bar("BTCUSDT", "1m", 1_700_000_120_000, 102, 103, 98, 99, 12, closed=True)
+
+    first_handles = trader.on_bar(first, now_ms=first.ts)
+    second_handles = trader.on_bar(second, now_ms=second.ts)
+    capped_matrix = trader.strategy_matrix()
+    third_handles = trader.on_bar(third, now_ms=third.ts)
+
+    order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
+    risk_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM risk_events").fetchone()
+    assert [handle.status for handle in first_handles] == ["filled"]
+    assert second_handles == []
+    assert [handle.status for handle in third_handles] == ["filled"]
+    assert order_count["n"] == 2
+    assert risk_count["n"] == 0
+    assert capped_matrix["cells"][0]["throttled"] is True
+    assert capped_matrix["cells"][0]["throttle_reason"] == "portfolio_notional_cap"
+
+
 def test_dashboard_trading_endpoints_expose_universe_matrix_and_recent_trades(
     tmp_path: Path,
     tmp_db: sqlite3.Connection,

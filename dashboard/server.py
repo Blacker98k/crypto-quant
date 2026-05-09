@@ -1208,6 +1208,7 @@ def main() -> None:
         engine=engine,
         symbols=_SYMBOLS,
         strategy_notional_multipliers={"explore_mean_reversion": 0.5},
+        max_open_notional_usdt=90_000.0,
     )
 
     # 4. 创建 LiveFeed 并启动（后台任务在 uvicorn 事件循环中运行）

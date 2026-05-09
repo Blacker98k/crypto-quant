@@ -289,6 +289,7 @@ class DashboardPaperTrader:
         cooldown_ms: int = 120_000,
         max_orders_per_symbol: int = 120,
         order_cap_window_ms: int = 60 * 60 * 1000,
+        max_open_notional_usdt: float | None = None,
     ) -> None:
         self._repo = repo
         self._cache = cache
@@ -303,6 +304,9 @@ class DashboardPaperTrader:
         self._cooldown_ms = max(cooldown_ms, 0)
         self._max_orders_per_symbol = max(max_orders_per_symbol, 1)
         self._order_cap_window_ms = max(order_cap_window_ms, 60_000)
+        self._max_open_notional_usdt = (
+            max(float(max_open_notional_usdt), 0.0) if max_open_notional_usdt is not None else None
+        )
         self._last_trade_ms: dict[tuple[str, str], int] = {}
         self._evaluations: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -416,6 +420,24 @@ class DashboardPaperTrader:
             evaluation["throttle_reason"] = "symbol_order_cap"
             evaluation["order_cap_window_ms"] = self._order_cap_window_ms
             return None
+        if (
+            self._max_open_notional_usdt is not None
+            and self._portfolio_open_notional() >= self._max_open_notional_usdt
+            and self._signal_adds_exposure(strategy_name, signal)
+        ):
+            evaluation = self._evaluations.setdefault(
+                key,
+                {
+                    "symbol": signal.symbol,
+                    "strategy_id": strategy_name,
+                    "ready": True,
+                    "bars": 0,
+                },
+            )
+            evaluation["throttled"] = True
+            evaluation["throttle_reason"] = "portfolio_notional_cap"
+            evaluation["max_open_notional_usdt"] = self._max_open_notional_usdt
+            return None
         quantity = self._round_qty(signal.symbol, self._notional_for_strategy(strategy_name) / price)
         if quantity * price < 5.0:
             self._record_risk("min_notional", "warn", strategy_name, signal, now_ms)
@@ -512,6 +534,28 @@ class DashboardPaperTrader:
             (symbol, since_ms),
         ).fetchone()
         return int(row["n"] or 0)
+
+    def _portfolio_open_notional(self) -> float:
+        rows = self._repo._conn.execute(
+            "SELECT s.symbol, p.qty, p.current_price, p.avg_entry_price "
+            "FROM positions p JOIN symbols s ON s.id = p.symbol_id "
+            "WHERE p.closed_at IS NULL"
+        ).fetchall()
+        total = 0.0
+        for row in rows:
+            price = self._cache.latest_price(str(row["symbol"])) or row["current_price"] or row["avg_entry_price"]
+            total += abs(float(row["qty"] or 0.0) * float(price or 0.0))
+        return total
+
+    def _signal_adds_exposure(self, strategy_name: str, signal: Signal) -> bool:
+        symbol_row = self._repo.get_symbol(signal.symbol)
+        if symbol_row is None:
+            return True
+        current = self._repo.get_open_position(int(symbol_row["id"]), strategy_name)
+        if current is None:
+            return True
+        desired_side = "long" if signal.side == "long" else "short"
+        return str(current["side"]) == desired_side
 
     def _notional_for_strategy(self, strategy_name: str) -> float:
         multiplier = self._strategy_notional_multipliers.get(strategy_name, 1.0)
