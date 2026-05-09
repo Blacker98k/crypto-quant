@@ -365,7 +365,7 @@
 
   <section class="metric-grid grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-12">
     <div class="metric metric-card">
-      <div class="label">初始资金</div>
+      <div class="label">初始基准</div>
       <div class="value">${{fmt(status.initial_balance)}}</div>
       <div class="subtle">模拟账户本金</div>
     </div>
@@ -429,7 +429,7 @@
       <div class="subtle">费用 ${{fmt(paperMetrics.fills.fees)}}</div>
     </div>
     <div class="metric metric-card">
-      <div class="label">净已实现盈亏</div>
+      <div class="label">已实现结果</div>
       <div class="value" :class="signClass(status.realized_pnl)">{{status.realized_pnl>=0?'+':''}}${{fmt(status.realized_pnl)}}</div>
       <div class="subtle">毛盈亏 ${{fmt(status.gross_realized_pnl)}} - 手续费 ${{fmt(status.fees_paid)}}</div>
     </div>
@@ -603,7 +603,7 @@
           <div class="font-bold">最近成交</div>
           <div class="subtle">成交笔数 {{paperMetrics.fills.total}}</div>
         </div>
-        <div class="subtle" :class="signClass(status.realized_pnl)">净已实现 {{status.realized_pnl>=0?'+':''}}${{fmt(status.realized_pnl)}}</div>
+        <div class="subtle" :class="signClass(status.realized_pnl)">已实现 {{status.realized_pnl>=0?'+':''}}${{fmt(status.realized_pnl)}}</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -699,7 +699,7 @@
       <div class="panel-head">
         <div>
           <div class="font-bold">资金曲线</div>
-          <div class="subtle">账户权益 / 累计盈亏</div>
+          <div class="subtle">模拟曲线</div>
         </div>
       </div>
       <div class="panel-body">

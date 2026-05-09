@@ -23,8 +23,8 @@ Exit code `0` means the local safety posture is acceptable for the next developm
 
 - Spot only.
 - No leverage, margin, futures, or withdrawals.
-- Total quote budget stays under 50 USDT.
-- Per-order quote budget stays under 5 USDT.
-- Daily loss cap stays under 5 USDT.
+- Total quote budget must stay under the configured safety cap.
+- Per-order quote budget must stay under the configured safety cap.
+- Daily loss cap must stay under the configured safety cap.
 - Kill switch and reconciliation must be enabled.
 - Paper dashboard must be running, connected, fresh, and above the drawdown threshold.

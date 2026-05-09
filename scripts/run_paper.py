@@ -116,7 +116,7 @@ class PaperRunner:
         """启动运行器。"""
         log.info("=" * 50)
         log.info("  Paper 交易模式启动")
-        log.info(f"  初始资金: ${_INITIAL_CASH:.0f}")
+        log.info("  初始基准已加载")
         log.info("  策略: S1 (BTC/ETH 趋势), S2 (均值回归)")
         log.info("=" * 50)
 

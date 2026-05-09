@@ -59,7 +59,7 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
     for label in [
-        "初始资金",
+        "初始基准",
         "账户权益",
         "可用余额",
         "已用保证金",
@@ -69,7 +69,7 @@ def test_dashboard_static_page_uses_chinese_operational_metrics() -> None:
         "行情覆盖",
         "今日订单",
         "今日成交",
-        "净已实现盈亏",
+        "已实现结果",
         "数据健康",
         "运行日志",
         "平均延迟",

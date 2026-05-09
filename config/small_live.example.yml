@@ -13,10 +13,10 @@ allow_futures: false
 allow_margin: false
 allow_withdrawals: false
 
-# Small-live hard caps. Keep these tiny while validating reconciliation.
-max_total_quote_usdt: 40
-max_order_quote_usdt: 5
-max_daily_loss_usdt: 3
+# Small-live hard caps. Fill locally; keep repository examples amount-free.
+max_total_quote_usdt: 0
+max_order_quote_usdt: 0
+max_daily_loss_usdt: 0
 max_open_positions: 1
 allowed_symbols:
   - BTCUSDT
