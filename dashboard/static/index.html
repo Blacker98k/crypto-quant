@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>crypto-quant 实时交易看板</title>
+<link rel="icon" href="data:,">
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -131,6 +132,21 @@
     font-size:12px;
     border:1px solid var(--line);
     background:#ffffff;
+    white-space:nowrap;
+  }
+  .source-chip {
+    display:inline-flex;
+    align-items:center;
+    max-width:360px;
+    min-height:28px;
+    padding:4px 9px;
+    border-radius:8px;
+    border:1px solid #dbe4ee;
+    background:#f8fafc;
+    color:#475569;
+    font-size:11px;
+    overflow:hidden;
+    text-overflow:ellipsis;
     white-space:nowrap;
   }
   .status-dot {
@@ -398,6 +414,12 @@
           </span>
           <span class="subtle">行情连接 {{status.ws_connected ? '已连接' : '未连接'}} / 已接收 {{status.bars_received}} 根K线</span>
           <span class="subtle">数据源 Binance 公共行情 / 禁止真实下单</span>
+          <span class="source-chip" :title="status.workspace_path + ' / ' + status.db_path">
+            数据源 {{status.db_path || '-'}}
+          </span>
+          <span class="source-chip">
+            数据起点 {{status.data_started_at ? new Date(status.data_started_at).toLocaleString('zh-CN', {hour12:false}) : '-'}}
+          </span>
         </div>
         <div class="toolbar-group">
           <button class="btn btn-primary" @click="startSim" v-if="!isRunning">启动模拟</button>
@@ -848,6 +870,7 @@ createApp({
   setup() {
     const status = reactive({
       mode:'paper', simulation_running:false, ws_connected:false, bars_received:0,
+      workspace_path:'', db_path:'', data_started_at:null, orders_count:0, fills_count:0,
       initial_balance:10000, portfolio_value:10000, usdt_balance:10000, open_positions_n:0, open_orders_n:0,
       account_equity:10000, available_balance:10000, used_margin:0, open_notional:0,
       gross_realized_pnl:0, fees_paid:0, net_realized_pnl:0,

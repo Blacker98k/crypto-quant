@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -19,6 +20,8 @@ from dashboard.server import (
     _apply_rest_price_rows,
     _apply_ticker_24h_rows,
     _compute_positions,
+    _start_of_day_ts,
+    _start_of_week_ts,
     create_app,
 )
 
@@ -287,6 +290,78 @@ def test_dashboard_status_exposes_live_feeder_running_state(
     assert payload["bars_received"] == 7
     assert payload["market_data_stale"] is False
     assert payload["last_bar_age_ms"] >= 0
+
+
+def test_dashboard_status_exposes_data_source_identity(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "type": "perp",
+                "base": "BTC",
+                "quote": "USDT",
+                "tick_size": 0.1,
+                "lot_size": 0.001,
+                "min_notional": 10.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    order_id = repo.insert_order(
+        {
+            "client_order_id": "source-check-1",
+            "symbol_id": symbol["id"],
+            "side": "buy",
+            "type": "market",
+            "price": 10.0,
+            "stop_price": None,
+            "quantity": 1.0,
+            "filled_qty": 1.0,
+            "avg_fill_price": 10.0,
+            "status": "filled",
+            "purpose": "entry",
+            "strategy_version": "explore_momentum",
+            "placed_at": 1_700_000_000_000,
+            "updated_at": 1_700_000_000_100,
+        }
+    )
+    repo.insert_fill(
+        {
+            "order_id": order_id,
+            "exchange_fill_id": "source-check-fill",
+            "price": 10.0,
+            "quantity": 1.0,
+            "fee": 0.01,
+            "fee_currency": "USDT",
+            "ts": 1_700_000_000_050,
+        }
+    )
+    app = _build_app(tmp_path, tmp_db)
+
+    payload = _call_route(app, "/api/status")
+
+    assert payload["workspace_path"].endswith("crypto-quant")
+    assert payload["db_path"] == ":memory:"
+    assert payload["data_started_at"] == 1_700_000_000_000
+    assert payload["fills_count"] == 1
+
+
+def test_dashboard_pnl_windows_use_shanghai_calendar_boundaries() -> None:
+    shanghai = timezone(timedelta(hours=8))
+    now_s = datetime(2026, 5, 9, 19, 30, tzinfo=shanghai).timestamp()
+
+    assert _start_of_day_ts(now_s=now_s) == int(
+        datetime(2026, 5, 9, 0, 0, tzinfo=shanghai).timestamp() * 1000
+    )
+    assert _start_of_week_ts(now_s=now_s) == int(
+        datetime(2026, 5, 4, 0, 0, tzinfo=shanghai).timestamp() * 1000
+    )
 
 
 def test_dashboard_status_reports_futures_equity_and_available_balance(

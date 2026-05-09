@@ -29,6 +29,15 @@ def test_dashboard_static_page_uses_live_running_state_for_status_badge() -> Non
     assert "status.ws_connected" in html
 
 
+def test_dashboard_static_page_shows_data_source_identity() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "status.db_path" in html
+    assert "status.data_started_at" in html
+    assert "数据源" in html
+    assert "数据起点" in html
+
+
 def test_dashboard_static_page_uses_full_width_trading_terminal_layout() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 

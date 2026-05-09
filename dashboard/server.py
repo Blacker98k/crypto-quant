@@ -17,6 +17,7 @@ import sys
 import time
 from collections.abc import Mapping
 from dataclasses import fields
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -67,14 +68,22 @@ _DATA_HEALTH_DEFAULT_WINDOW_MS = 10 * 60_000
 _INITIAL_USDT_BALANCE = 10_000.0
 _PAPER_MARGIN_LEVERAGE = 25.0
 _PAPER_MAX_OPEN_NOTIONAL = 70_000.0
+_LOCAL_TZ = timezone(timedelta(hours=8))
 
 
 # ─── 工兛函数 ──────────────────────────────────────────────────────────────────
 
 
-def _start_of_day_ts() -> int:
-    now_s = time.time()
-    return int((now_s - now_s % 86400) * 1000)
+def _start_of_day_ts(now_s: float | None = None) -> int:
+    now = datetime.fromtimestamp(time.time() if now_s is None else now_s, tz=_LOCAL_TZ)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(start.timestamp() * 1000)
+
+
+def _start_of_week_ts(now_s: float | None = None) -> int:
+    now = datetime.fromtimestamp(time.time() if now_s is None else now_s, tz=_LOCAL_TZ)
+    start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(start.timestamp() * 1000)
 
 
 def _pnl_in_window(repo: SqliteRepo, since_ms: int, positions: list[dict] | None = None) -> dict:
@@ -478,8 +487,10 @@ def create_app(
         running = _feeder_running(feeder)
         last_bar_age_ms = _feeder_last_bar_age_ms(feeder)
         market_data_stale = _feeder_market_data_stale(feeder)
+        data_source = _data_source_identity(repo)
         return {
             "mode": "live_paper",
+            **data_source,
             "simulation_running": running,
             "ws_connected": running,
             "bars_received": feeder._bar_counter,
@@ -503,7 +514,7 @@ def create_app(
             "risk_events_n": risk_counts["total"],
             "critical_risk_events_n": risk_counts["critical"],
             "day_pnl": _pnl_in_window(repo, _start_of_day_ts(), positions),
-            "week_pnl": _pnl_in_window(repo, _start_of_day_ts() - 7 * 86400_000, positions),
+            "week_pnl": _pnl_in_window(repo, _start_of_week_ts(), positions),
             "latest_prices": prices,
         }
 
@@ -966,6 +977,35 @@ def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
         f"WHERE {_actionable_risk_sql()}"
     ).fetchone()
     return {"total": int(row["total"] or 0), "critical": int(row["critical"] or 0)}
+
+
+def _data_source_identity(repo: SqliteRepo) -> dict[str, object]:
+    db_rows = repo._conn.execute("PRAGMA database_list").fetchall()
+    db_path = ":memory:"
+    for row in db_rows:
+        if row["name"] == "main" and row["file"]:
+            db_path = str(Path(row["file"]).resolve())
+            break
+
+    counts = repo._conn.execute(
+        "SELECT "
+        "(SELECT COUNT(*) FROM fills) AS fills_count, "
+        "(SELECT COUNT(*) FROM orders) AS orders_count"
+    ).fetchone()
+    started = repo._conn.execute(
+        "SELECT MIN(ts) AS started_at FROM ("
+        "SELECT MIN(placed_at) AS ts FROM orders WHERE placed_at IS NOT NULL "
+        "UNION ALL "
+        "SELECT MIN(ts) AS ts FROM fills WHERE ts IS NOT NULL"
+        ") WHERE ts IS NOT NULL"
+    ).fetchone()
+    return {
+        "workspace_path": str(_PROJECT_ROOT),
+        "db_path": db_path,
+        "data_started_at": int(started["started_at"]) if started and started["started_at"] is not None else None,
+        "orders_count": int(counts["orders_count"] or 0),
+        "fills_count": int(counts["fills_count"] or 0),
+    }
 
 
 def _recent_actionable_risk_events(
