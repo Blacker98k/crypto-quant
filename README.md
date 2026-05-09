@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 当前阶段 | **Phase 1：基础设施收尾**（策略层/撮合引擎/回测/Dashboard 已就位） |
-| 当前里程碑 | P1.1 骨架 ✅ · P1.5 DB Schema ✅ · P1.6 策略接口 ✅ · P1.7 paper 撮合器 ✅ · P1.8 vectorbt 回测 ✅ · P1.9 Dashboard ✅；待 P1.2 历史回填 + P1.3 实时 WS |
-| 待办 | 真实 Binance 历史数据拉取 → WS 实时订阅（见 [`docs/08-路线图.md`](./docs/08-路线图.md)） |
-| 上次更新 | 2026-05-04 |
+| 当前阶段 | **Phase 1：真实行情纸面交易验证**（数据层/策略层/撮合引擎/回测/Dashboard 已就位） |
+| 当前里程碑 | P1.1 骨架 ✅ · P1.2 历史回填 ✅ · P1.3 实时 WS ✅ · P1.5 DB Schema ✅ · P1.6 策略接口 ✅ · P1.7 paper 撮合器 ✅ · P1.8 回测 ✅ · P1.9 Dashboard ✅ |
+| 待办 | 继续长期纸面交易复盘、策略参数小步校准；真实资金仅保留 `small_live` 就绪检查，不读取 secrets、不下单 |
+| 上次更新 | 2026-05-09 |
 | 维护 | Blacker + AI 协作（多 Agent 接力） |
 
 详细进度看 [`docs/08-路线图.md`](./docs/08-路线图.md) 或 [`记忆/02-当前状态.md`](./记忆/02-当前状态.md)。
@@ -50,7 +50,7 @@ uv run mypy core           # 类型检查（当前仅扫描 core）
 ```bash
 uv run python -m dashboard.server
 # 浏览器打开 http://localhost:8089
-# 无 API Key 也能看 — 内置合成行情模拟器 + paper 撮合
+# 无 API Key 也能看 — 默认接入 Binance 公共行情 + paper 撮合；断网时才回退到模拟行情
 ```
 
 ### 跑回测 Demo
