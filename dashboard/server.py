@@ -637,14 +637,23 @@ def create_app(
             "GROUP BY o.strategy_version"
         ).fetchall()
         fills_by_strategy = {row["strategy_version"]: row["fills_count"] for row in fills}
+        pnl_by_strategy = _strategy_pnl_summary(repo, cache)
         payload = [
             {
                 "name": row["strategy_version"] or "unknown",
                 "orders_count": row["orders_count"],
                 "fills_count": fills_by_strategy.get(row["strategy_version"], 0),
                 "win_rate": 0.0,
-                "total_pnl": 0.0,
-                "roi": 0.0,
+                **pnl_by_strategy.get(
+                    row["strategy_version"],
+                    {
+                        "realized_pnl": 0.0,
+                        "unrealized_pnl": 0.0,
+                        "total_pnl": 0.0,
+                        "open_notional": 0.0,
+                        "roi": 0.0,
+                    },
+                ),
             }
             for row in rows
         ]
@@ -658,8 +667,16 @@ def create_app(
                             "orders_count": 0,
                             "fills_count": 0,
                             "win_rate": 0.0,
-                            "total_pnl": 0.0,
-                            "roi": 0.0,
+                            **pnl_by_strategy.get(
+                                strategy,
+                                {
+                                    "realized_pnl": 0.0,
+                                    "unrealized_pnl": 0.0,
+                                    "total_pnl": 0.0,
+                                    "open_notional": 0.0,
+                                    "roi": 0.0,
+                                },
+                            ),
                         }
                     )
         return payload
@@ -931,7 +948,7 @@ def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
         sym = str(symbol["symbol"]) if symbol is not None else "BTCUSDT"
         qty = float(row["qty"])
         entry = float(row["avg_entry_price"])
-        cur = cache.latest_price(sym) or entry
+        cur = cache.latest_price(sym) or float(row["current_price"] or entry)
         position_side = str(row["side"])
         if position_side == "long":
             side = "buy"
@@ -953,6 +970,53 @@ def _compute_positions(repo: SqliteRepo, cache: MemoryCache) -> list[dict]:
             }
         )
     return positions
+
+
+def _strategy_pnl_summary(repo: SqliteRepo, cache: MemoryCache) -> dict[str, dict[str, float]]:
+    summary: dict[str, dict[str, float]] = {}
+    realized_rows = repo._conn.execute(
+        "SELECT strategy_version, SUM(realized_pnl) AS realized_pnl "
+        "FROM positions GROUP BY strategy_version"
+    ).fetchall()
+    for realized_row in realized_rows:
+        strategy = str(realized_row["strategy_version"] or "unknown")
+        row = summary.setdefault(
+            strategy,
+            {
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "total_pnl": 0.0,
+                "open_notional": 0.0,
+                "roi": 0.0,
+            },
+        )
+        row["realized_pnl"] = float(realized_row["realized_pnl"] or 0.0)
+
+    for position in _compute_positions(repo, cache):
+        strategy = str(position.get("strategy") or "unknown")
+        row = summary.setdefault(
+            strategy,
+            {
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "total_pnl": 0.0,
+                "open_notional": 0.0,
+                "roi": 0.0,
+            },
+        )
+        row["unrealized_pnl"] += float(position.get("unrealized_pnl") or 0.0)
+        row["open_notional"] += abs(
+            float(position.get("qty") or 0.0) * float(position.get("current_price") or 0.0)
+        )
+
+    for row in summary.values():
+        total_pnl = row["realized_pnl"] + row["unrealized_pnl"]
+        row["realized_pnl"] = round(row["realized_pnl"], 2)
+        row["unrealized_pnl"] = round(row["unrealized_pnl"], 2)
+        row["total_pnl"] = round(total_pnl, 2)
+        row["open_notional"] = round(row["open_notional"], 2)
+        row["roi"] = round(total_pnl / row["open_notional"] * 100, 2) if row["open_notional"] else 0.0
+    return summary
 
 
 def _account_snapshot(

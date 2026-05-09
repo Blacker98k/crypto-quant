@@ -125,11 +125,23 @@ def test_dashboard_static_page_aligns_market_panel_with_chart() -> None:
     html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
 
     assert ".side-stack > .panel:first-child" in html
-    assert "height:665px" in html
+    assert "align-items:start" in html
+    assert "height:645px" in html
     assert ".side-stack > .panel:first-child .panel-body" in html
     assert "overflow:auto" in html
     assert "scrollbar-width:thin" in html
     assert "market-list" in html
     assert ".market-tile .value" in html
-    assert "font-size:15px" in html
+    assert "font-size:14px" in html
     assert ".market-change" in html
+
+
+def test_dashboard_static_page_shows_strategy_pnl_breakdown() -> None:
+    html = Path("dashboard/static/index.html").read_text(encoding="utf-8")
+
+    assert "sc.realized_pnl" in html
+    assert "sc.unrealized_pnl" in html
+    assert "sc.open_notional" in html
+    assert "已实现" in html
+    assert "浮动" in html
+    assert "合计" in html
