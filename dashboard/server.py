@@ -52,6 +52,7 @@ _FUTURES_24H_URL = "https://fapi.binance.com/fapi/v1/ticker/24hr"
 _DATA_HEALTH_DEFAULT_WINDOW_MS = 10 * 60_000
 _INITIAL_USDT_BALANCE = 10_000.0
 _PAPER_MARGIN_LEVERAGE = 25.0
+_PAPER_MAX_OPEN_NOTIONAL = 70_000.0
 
 
 # ─── 工兛函数 ──────────────────────────────────────────────────────────────────
@@ -1208,7 +1209,7 @@ def main() -> None:
         engine=engine,
         symbols=_SYMBOLS,
         strategy_notional_multipliers={"explore_mean_reversion": 0.5},
-        max_open_notional_usdt=90_000.0,
+        max_open_notional_usdt=_PAPER_MAX_OPEN_NOTIONAL,
     )
 
     # 4. 创建 LiveFeed 并启动（后台任务在 uvicorn 事件循环中运行）
