@@ -1,4 +1,27 @@
-"""风控层：L1 订单层 / L2 仓位层 / L3 投资组合层 / 熔断器。
+"""椋庢帶灞傦細L1 璁㈠崟灞?/ L2 浠撲綅灞?/ L3 鎶曡祫缁勫悎灞?/ 鐔旀柇鍣ㄣ€?"""
 
-详见 ``docs/02-架构设计文档.md §6`` 与 ``ADR-008``。Phase 3a 才落地实现。
-"""
+from core.risk.order_risk import L1OrderRiskValidator, RiskDecision
+from core.risk.portfolio_risk import (
+    L3PortfolioRiskValidator,
+    PortfolioRiskDecision,
+    PortfolioRiskLimits,
+)
+from core.risk.position_risk import (
+    L2PositionRiskSizer,
+    PositionRiskDecision,
+    PositionRiskLimits,
+)
+from core.risk.signal_risk import SignalDecision, StrategySignalValidator
+
+__all__ = [
+    "L1OrderRiskValidator",
+    "L2PositionRiskSizer",
+    "L3PortfolioRiskValidator",
+    "PortfolioRiskDecision",
+    "PortfolioRiskLimits",
+    "PositionRiskDecision",
+    "PositionRiskLimits",
+    "RiskDecision",
+    "SignalDecision",
+    "StrategySignalValidator",
+]

@@ -1,6 +1,20 @@
-"""数据层包占位。
+"""数据层：交易所数据类型、缓存、Parquet IO、Feed 与 SQLite repo。"""
 
-Phase 1 后续 PR 会在这里落地交易所适配、Parquet IO、实时缓存和 DataFeed。
-"""
+from core.data.feed import LiveFeed, ResearchFeed, SubscriptionHandle, Tick
+from core.data.memory_cache import MemoryCache
+from core.data.parquet_io import ParquetIO
+from core.data.sqlite_repo import SqliteRepo
+from core.data.symbol import Symbol, display_symbol, normalize_symbol
 
-__all__: list[str] = []
+__all__ = [
+    "LiveFeed",
+    "MemoryCache",
+    "ParquetIO",
+    "ResearchFeed",
+    "SqliteRepo",
+    "SubscriptionHandle",
+    "Symbol",
+    "Tick",
+    "display_symbol",
+    "normalize_symbol",
+]

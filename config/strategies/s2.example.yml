@@ -1,23 +1,39 @@
-# S2 · 中市值均值回归（示例参数）
+# S2 · 中市值币均值回归（示例参数）
 # 完整规则见 docs/03-详细设计/strategies/S2-中市值均值回归.md
 
 strategy:
-  id: s2_midcap_mean_rev
-  universe: observation              # core 20 + 剔除 BTC/ETH 等由 Universe 脚本提供
+  id: s2_altcoin_reversal
+  symbols_pool: observation           # top 21-100，剔除 BTC/ETH/稳定币
+  max_symbols: 50                     # 实际参与筛选的上限
   market: perp
   timeframes:
-    signal: 1h
+    entry: 1h
     trend_filter: 1d
   leverage_target: 2
 
 entry:
   rsi_period: 14
-  rsi_upper: 25                      # RSI < 25 视作超卖
+  rsi_threshold: 25                   # RSI < 25 视为超卖
   bb_period: 20
-  bb_std: 2.0
-  max_intrabar_drop_pct: 0.05        # 单根 1h 跌幅 > 5% 不接飞刀
+  bb_std_mult: 2.0                    # 收盘价触碰布林下轨
+  max_hourly_drop_pct: 0.05           # 单根 1h K 线跌幅 ≤ 5%（防崩盘）
+  min_7d_daily_volume_usdt: 50_000_000  # 近 7 天日均成交额 ≥ 5000 万
+
+funding:
+  max_abs_rate: 0.001                 # funding rate 绝对值 < 0.1%（防极端情绪）
+
+exit:
+  bb_target: middle                   # 回归布林中轨止盈
+  profit_target_pct: 0.05             # 或浮盈 +5% 止盈一半
+  trail_stop_remaining: true          # 剩余仓位跟踪止损
+  stop_loss_pct: 0.05                 # 固定 -5% 硬止损
+  time_stop_hours: 72                 # 持仓超 72h 未触止盈/止损 → 平仓
 
 risk:
-  per_trade_risk_pct: 0.005          # 单笔风险 0.5%（spec）
-  hard_stop_pct: 0.05                # 固定 -5% 止损
-  max_concurrent_positions: 5
+  per_trade_risk_pct: 0.005           # 单笔风险 0.5%（反转胜率高但盈亏比低）
+  max_concurrent_positions: 5         # 最多同时 5 个标的
+  daily_entry_per_symbol: 1           # 同标的当天只开一次
+  max_daily_loss_pct: 0.03            # 单策略单日亏 ≥ 3% → 暂停 24h
+  max_consecutive_losses: 6           # 连亏 ≥ 6 笔 → 暂停 24h
+  max_strategy_drawdown_pct: 0.12     # 策略单独回撤 ≥ 12% → 暂停
+  no_adds: true                       # 反转策略不加仓（防止越亏越加）
