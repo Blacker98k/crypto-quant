@@ -81,6 +81,13 @@ def test_dashboard_static_page_avoids_emoji_action_icons() -> None:
     assert "⏸" not in html
 
 
+def test_dashboard_static_page_labels_manual_control_as_strategy_evaluation() -> None:
+    html = _html()
+    assert "触发评估" in html
+    assert "本次没有核心策略信号" in html
+    assert "随机下单" not in html
+
+
 def test_dashboard_static_page_refreshes_prices_quickly() -> None:
     html = _html()
     assert "pricePollTimer" in html

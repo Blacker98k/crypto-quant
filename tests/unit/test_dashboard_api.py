@@ -630,9 +630,24 @@ def test_dashboard_status_marks_stale_feeder_unhealthy(
 
     payload = _call_route(app, "/api/status")
 
-    assert payload["ws_connected"] is False
+    assert payload["ws_connected"] is True
     assert payload["simulation_running"] is False
     assert payload["market_data_stale"] is True
+
+
+def test_dashboard_status_keeps_running_when_rest_fallback_is_fresh(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    app = _build_app(tmp_path, tmp_db)
+    app.state.feeder._running = True
+    app.state.feeder._ws._running = False
+    app.state.feeder._last_bar_ms = int(time.time() * 1000)
+
+    payload = _call_route(app, "/api/status")
+
+    assert payload["simulation_running"] is True
+    assert payload["ws_connected"] is False
+    assert payload["market_data_stale"] is False
 
 
 async def test_dashboard_control_endpoint_starts_and_stops_feeder(
@@ -645,6 +660,39 @@ async def test_dashboard_control_endpoint_starts_and_stops_feeder(
 
     assert stopped["simulation_running"] is False
     assert started["simulation_running"] is True
+
+
+async def test_dashboard_control_reports_strategy_evaluation_order_count(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    class _Trader:
+        symbols: ClassVar[list[str]] = ["BTCUSDT"]
+        strategies: ClassVar[list[str]] = ["S1_btc_eth_trend"]
+
+        def __init__(self) -> None:
+            self.seen_timeframes: list[str] = []
+
+        def on_bar(self, bar: Bar, now_ms: int | None = None) -> list[Any]:
+            self.seen_timeframes.append(bar.timeframe)
+            return []
+
+    trader = _Trader()
+    app = create_app(cache, repo, parquet_io, engine, _DummyFeeder(), static_dir, trader=trader)  # type: ignore[arg-type]
+
+    payload = await _call_route(app, "/api/control", payload={"action": "random_order"})
+
+    assert payload["ok"] is True
+    assert payload["orders_generated"] == 0
+    assert payload["message"] == "no_core_strategy_signal"
+    assert trader.seen_timeframes
 
 
 async def test_live_feeder_falls_back_to_direct_ws_when_proxy_fails(

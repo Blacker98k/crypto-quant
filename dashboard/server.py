@@ -562,15 +562,16 @@ def create_app(
             strategies=active_strategies,
         )
         risk_counts = _risk_event_counts(repo)
-        running = _feeder_running(feeder)
+        simulation_running = _feeder_simulation_running(feeder)
+        ws_connected = _feeder_ws_connected(feeder)
         last_bar_age_ms = _feeder_last_bar_age_ms(feeder)
         market_data_stale = _feeder_market_data_stale(feeder)
         data_source = _data_source_identity(repo, strategies=active_strategies)
         return {
             "mode": "live_paper",
             **data_source,
-            "simulation_running": running,
-            "ws_connected": running,
+            "simulation_running": simulation_running,
+            "ws_connected": ws_connected,
             "bars_received": feeder._bar_counter,
             "last_bar_age_ms": last_bar_age_ms,
             "market_data_stale": market_data_stale,
@@ -962,11 +963,12 @@ def create_app(
         elif action == "stop":
             await feeder.stop()
         elif action == "random_order":
+            handles = []
             if trader:
                 symbol = trader.symbols[0] if trader.symbols else "BTCUSDT"
                 price = cache.latest_price(symbol) or 100.0
                 now_ms = int(time.time() * 1000)
-                trader.on_bar(
+                handles = trader.on_bar(
                     Bar(
                         symbol=symbol,
                         timeframe="1m",
@@ -980,10 +982,20 @@ def create_app(
                     ),
                     now_ms=now_ms,
                 )
+            orders_generated = len(handles)
+            message = "strategy_order_generated" if orders_generated else "no_core_strategy_signal"
+        else:
+            orders_generated = 0
+            message = "unknown_action"
+        if action in {"start", "stop"}:
+            orders_generated = 0
+            message = f"{action}_ok"
         return {
             "ok": action in {"start", "stop", "random_order"},
             "action": action,
-            "simulation_running": _feeder_running(feeder),
+            "orders_generated": orders_generated,
+            "message": message,
+            "simulation_running": _feeder_simulation_running(feeder),
         }
 
     # ─── WebSocket ────────────────────────────────────────────────────────
@@ -1028,8 +1040,8 @@ def create_app(
                     "realized_pnl": account["realized_pnl"],
                     "unrealized_pnl": account["unrealized_pnl"],
                     "paper_leverage": account["leverage"],
-                    "simulation_running": _feeder_running(feeder),
-                    "ws_connected": _feeder_running(feeder),
+                    "simulation_running": _feeder_simulation_running(feeder),
+                    "ws_connected": _feeder_ws_connected(feeder),
                     "bars_received": feeder._bar_counter,
                     "last_bar_age_ms": _feeder_last_bar_age_ms(feeder),
                     "market_data_stale": _feeder_market_data_stale(feeder),
@@ -1186,10 +1198,20 @@ def _actionable_risk_sql() -> str:
 
 
 def _feeder_running(feeder: LiveDataFeeder) -> bool:
-    ws = getattr(feeder, "_ws", None)
-    if not bool(getattr(feeder, "_running", False) and getattr(ws, "_running", False)):
+    if not _feeder_simulation_running(feeder):
+        return False
+    return _feeder_ws_connected(feeder)
+
+
+def _feeder_simulation_running(feeder: LiveDataFeeder) -> bool:
+    if not bool(getattr(feeder, "_running", False)):
         return False
     return not _feeder_market_data_stale(feeder)
+
+
+def _feeder_ws_connected(feeder: LiveDataFeeder) -> bool:
+    ws = getattr(feeder, "_ws", None)
+    return bool(getattr(ws, "_running", False))
 
 
 def _feeder_last_bar_age_ms(feeder: LiveDataFeeder) -> int | None:
