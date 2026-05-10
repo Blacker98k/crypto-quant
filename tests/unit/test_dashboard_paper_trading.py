@@ -250,6 +250,35 @@ def test_exploration_mean_reversion_requires_sma_deviation() -> None:
     assert strategy.evaluate("BTCUSDT", far_from_sma) is not None
 
 
+def test_exploration_mean_reversion_adapts_to_quiet_tradeable_market() -> None:
+    strategy = ExplorationStrategy("paper_mean_reversion", min_bars=3)
+    bars = [
+        Bar(
+            "BTCUSDT",
+            "1m",
+            1_700_000_000_000 + index * 60_000,
+            100.0,
+            100.03,
+            99.97,
+            100.0,
+            10,
+            closed=True,
+        )
+        for index in range(29)
+    ]
+    bars.extend(
+        [
+            Bar("BTCUSDT", "1m", 1_700_001_740_000, 100, 100.03, 99.97, 100.0, 10, closed=True),
+            Bar("BTCUSDT", "1m", 1_700_001_800_000, 100, 100.02, 99.84, 99.88, 10, closed=True),
+        ]
+    )
+
+    signal = strategy.evaluate("BTCUSDT", bars)
+
+    assert signal is not None
+    assert signal.side == "long"
+
+
 def test_exploration_mean_reversion_blocks_countertrend_entries() -> None:
     strategy = ExplorationStrategy("paper_mean_reversion", min_bars=3)
     bars = [

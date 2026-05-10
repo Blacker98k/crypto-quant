@@ -12,6 +12,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any, Protocol
 
 from core.data.exchange.base import Bar
@@ -68,6 +69,7 @@ _STABLE_BASES = {"USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "USDE", "EUR", 
 _LEVERAGED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
 _EXPLORATION_MOMENTUM_MIN_MOVE_PCT = 0.0018
 _EXPLORATION_MEAN_REVERSION_MIN_DEVIATION_PCT = 0.0018
+_EXPLORATION_MEAN_REVERSION_MIN_ADAPTIVE_DEVIATION_PCT = 0.00075
 _EXPLORATION_MEAN_REVERSION_TREND_LOOKBACK = 30
 _EXPLORATION_MEAN_REVERSION_TREND_BLOCK_PCT = 0.006
 _EXPLORATION_VOLATILITY_MIN_RANGE_PCT = 0.0035
@@ -421,7 +423,8 @@ class ExplorationStrategy:
             if sma <= 0:
                 return None
             deviation_pct = (last.c - sma) / sma
-            if abs(deviation_pct) < _EXPLORATION_MEAN_REVERSION_MIN_DEVIATION_PCT:
+            deviation_threshold = _mean_reversion_deviation_threshold(bars)
+            if abs(deviation_pct) < deviation_threshold:
                 return None
             side = "long" if deviation_pct <= 0 else "short"
             trend = _local_trend_direction(
@@ -435,6 +438,7 @@ class ExplorationStrategy:
                 "type": "mean_reversion",
                 "window": self.min_bars,
                 "deviation_pct": deviation_pct,
+                "deviation_threshold": deviation_threshold,
                 "trend": trend,
             }
         elif self.name.endswith("volatility"):
@@ -958,6 +962,24 @@ def _is_mainstream_usdt_symbol(symbol: str) -> bool:
 
 def _sma(bars: list[Bar]) -> float:
     return sum(bar.c for bar in bars) / len(bars)
+
+
+def _mean_reversion_deviation_threshold(bars: list[Bar]) -> float:
+    if len(bars) < 3:
+        return _EXPLORATION_MEAN_REVERSION_MIN_DEVIATION_PCT
+    recent = bars[-min(len(bars), 20) :]
+    returns = [
+        abs(cur.c - prev.c) / prev.c
+        for prev, cur in pairwise(recent)
+        if prev.c > 0
+    ]
+    if not returns:
+        return _EXPLORATION_MEAN_REVERSION_MIN_DEVIATION_PCT
+    realized_noise = sum(returns) / len(returns)
+    return max(
+        _EXPLORATION_MEAN_REVERSION_MIN_ADAPTIVE_DEVIATION_PCT,
+        min(_EXPLORATION_MEAN_REVERSION_MIN_DEVIATION_PCT, realized_noise * 1.5),
+    )
 
 
 def _local_trend_direction(
