@@ -22,7 +22,7 @@ def _default_client_session() -> Any:
 
 
 class _CacheLike(Protocol):
-    def push_bar(self, bar: Bar) -> None: ...
+    def push_bar(self, bar: Bar, *, update_latest: bool = True) -> None: ...
     def update_latest_price(self, symbol: str, price: float, source_ts: int | None = None) -> None: ...
 
 
@@ -174,7 +174,7 @@ class WsSubscriber:
                 await self._publish_bar(bar)
 
     async def _publish_bar(self, bar: Bar) -> None:
-        self._cache.push_bar(bar)
+        self._cache.push_bar(bar, update_latest=bar.timeframe == "1m")
         if bar.closed:
             key = (bar.symbol, bar.timeframe)
             self._last_closed_ts[key] = max(self._last_closed_ts.get(key, bar.ts), bar.ts)

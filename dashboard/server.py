@@ -526,7 +526,7 @@ class LiveDataFeeder:
                     self._repo.log_run(f"binance_{timeframe}_warmup_{symbol}", "fail", note=str(exc)[:200])
                     continue
                 for bar in bars:
-                    self._cache.push_bar(bar)
+                    self._cache.push_bar(bar, update_latest=timeframe == "1m")
                 if bars:
                     self._parquet_io.write_bars(bars)
                     closed_bars = [bar for bar in bars if bar.closed]

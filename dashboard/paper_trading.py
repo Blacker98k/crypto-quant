@@ -413,6 +413,9 @@ class ExplorationStrategy:
     min_bars: int = 3
     confidence: float = 0.58
 
+    def supports(self, symbol: str, timeframe: str) -> bool:
+        return timeframe == "1m"
+
     def evaluate(self, symbol: str, bars: list[Bar]) -> Signal | None:
         if len(bars) < self.min_bars:
             return None

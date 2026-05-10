@@ -19,7 +19,7 @@ class MemoryCache:
         self._latest_price_meta: dict[str, dict[str, int | None]] = {}
         self._lock = RLock()
 
-    def push_bar(self, bar: Bar) -> None:
+    def push_bar(self, bar: Bar, *, update_latest: bool = True) -> None:
         """插入或覆盖一根 K 线。"""
         key = (bar.symbol, bar.timeframe)
         with self._lock:
@@ -28,11 +28,12 @@ class MemoryCache:
                 dq[-1] = bar
             else:
                 dq.append(bar)
-            self._latest_prices[bar.symbol] = bar.c
-            self._latest_price_meta[bar.symbol] = {
-                "source_ts": bar.ts,
-                "updated_at": self._now_ms(),
-            }
+            if update_latest:
+                self._latest_prices[bar.symbol] = bar.c
+                self._latest_price_meta[bar.symbol] = {
+                    "source_ts": bar.ts,
+                    "updated_at": self._now_ms(),
+                }
 
     def get_bars(self, symbol: str, timeframe: str, n: int | None = None) -> list[Bar]:
         """读取缓存 K 线。"""

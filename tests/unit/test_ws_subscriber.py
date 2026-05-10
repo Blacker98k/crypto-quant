@@ -90,19 +90,19 @@ class FakeExchange:
         ]
 
 
-def _kline_payload(*, closed: bool = True) -> dict:
+def _kline_payload(*, closed: bool = True, timeframe: str = "1m", close: str = "105") -> dict:
     return {
-        "stream": "btcusdt@kline_1m",
+        "stream": f"btcusdt@kline_{timeframe}",
         "data": {
             "e": "kline",
             "s": "BTCUSDT",
             "k": {
                 "t": 1700000000000,
-                "i": "1m",
+                "i": timeframe,
                 "o": "100",
                 "h": "110",
                 "l": "90",
-                "c": "105",
+                "c": close,
                 "v": "2",
                 "q": "210",
                 "x": closed,
@@ -161,6 +161,19 @@ async def test_partial_kline_updates_cache_without_parquet_write() -> None:
 
     assert cache.latest_price("BTCUSDT") == 105
     assert parquet.writes == []
+
+
+async def test_higher_timeframe_kline_does_not_overwrite_latest_price() -> None:
+    cache = MemoryCache()
+    parquet = FakeParquetIO()
+    ws = WsSubscriber(cache, parquet)
+    cache.update_latest_price("BTCUSDT", 106.25)
+    ws.subscribe_candles("BTCUSDT", "1h", lambda bar: None)
+
+    await ws._handle_payload(_kline_payload(timeframe="1h", close="150"))
+
+    assert cache.bar_count("BTCUSDT", "1h") == 1
+    assert cache.latest_price("BTCUSDT") == 106.25
 
 
 async def test_mini_ticker_updates_latest_price_without_mutating_bars() -> None:

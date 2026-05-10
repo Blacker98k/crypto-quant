@@ -89,6 +89,17 @@ class TestLatestPrice:
         cache.push_bar(b)
         assert cache.latest_price("BTCUSDT") == 50001.0
 
+    def test_push_bar_can_skip_latest_price_update(self):
+        cache = MemoryCache()
+        cache.update_latest_price("BTCUSDT", 50000.0)
+        b = _bar(1000, closed=True)
+        b.c = 45000.0
+
+        cache.push_bar(b, update_latest=False)
+
+        assert cache.latest_price("BTCUSDT") == 50000.0
+        assert cache.bar_count("BTCUSDT", "1h") == 1
+
     def test_latest_prices_all(self):
         cache = MemoryCache()
         cache.update_latest_price("BTCUSDT", 50000)
