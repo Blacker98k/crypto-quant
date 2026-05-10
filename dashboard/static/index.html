@@ -169,11 +169,37 @@
 
   /* ─── 卡片 / 面板 ────────────────────────────────────────────── */
   .card {
+    position:relative;
     background:var(--surface);
     border:1px solid var(--border);
     border-radius:var(--radius-lg);
     box-shadow:var(--shadow-sm);
   }
+  /* tone 色条统一用 ::before 绝对定位画在最上层，
+     避免 inset box-shadow 被表头 / 子元素 background 遮挡 */
+  .card.tone-blue::before,
+  .card.tone-green::before,
+  .card.tone-red::before,
+  .card.tone-amber::before,
+  .card.tone-purple::before,
+  .card.tone-cyan::before,
+  .card.tone-slate::before {
+    content:"";
+    position:absolute; left:0; top:0; bottom:0; width:3px;
+    /* 跟随卡片左侧圆角 */
+    border-top-left-radius:var(--radius-lg);
+    border-bottom-left-radius:var(--radius-lg);
+    z-index:2;
+    pointer-events:none;
+  }
+  .card.tone-blue::before   { background:var(--tone-blue-line); }
+  .card.tone-green::before  { background:var(--tone-green-line); }
+  .card.tone-red::before    { background:var(--tone-red-line); }
+  .card.tone-amber::before  { background:var(--tone-amber-line); }
+  .card.tone-purple::before { background:var(--tone-purple-line); }
+  .card.tone-cyan::before   { background:var(--tone-cyan-line); }
+  .card.tone-slate::before  { background:var(--tone-slate-line); }
+
   .card-header {
     display:flex; align-items:center; justify-content:space-between; gap:14px;
     padding:12px 18px 10px;
@@ -186,14 +212,16 @@
   .card-body { padding:16px 18px; }
   .card-body-flush { padding:0; }
 
-  /* ─── tone（版块色调）── 卡片左色条 + 头部极淡渐变 ──────────── */
-  .tone-blue   { box-shadow:inset 3px 0 0 var(--tone-blue-line),   var(--shadow-sm); }
-  .tone-green  { box-shadow:inset 3px 0 0 var(--tone-green-line),  var(--shadow-sm); }
-  .tone-red    { box-shadow:inset 3px 0 0 var(--tone-red-line),    var(--shadow-sm); }
-  .tone-amber  { box-shadow:inset 3px 0 0 var(--tone-amber-line),  var(--shadow-sm); }
-  .tone-purple { box-shadow:inset 3px 0 0 var(--tone-purple-line), var(--shadow-sm); }
-  .tone-cyan   { box-shadow:inset 3px 0 0 var(--tone-cyan-line),   var(--shadow-sm); }
-  .tone-slate  { box-shadow:inset 3px 0 0 var(--tone-slate-line),  var(--shadow-sm); }
+  /* ─── tone（版块色调）── 卡片头部极淡渐变背景 ─────────────── */
+  /* 注意：.card 上不再叠加 inset 色条阴影，避免被表头/子元素遮挡。
+     仅 .kpi-mini 等小卡内部无表格，仍用 inset shadow 实现色条。 */
+  .tone-blue,
+  .tone-green,
+  .tone-red,
+  .tone-amber,
+  .tone-purple,
+  .tone-cyan,
+  .tone-slate { /* placeholder：仅用于语义标记，色条逻辑由 .card::before 接管 */ }
 
   .tone-blue   > .card-header { background:linear-gradient(180deg, var(--tone-blue-tint)   0%, transparent 90%); }
   .tone-green  > .card-header { background:linear-gradient(180deg, var(--tone-green-tint)  0%, transparent 90%); }
@@ -526,6 +554,12 @@
   .chip-info    { background:var(--accent-bg);color:var(--accent);border-color:transparent; }
   .chip-buy     { color:var(--green); background:var(--green-bg); border-color:transparent; }
   .chip-sell    { color:var(--red);   background:var(--red-bg);   border-color:transparent; }
+  /* 表格里的 chip 收紧成方块图标，让"方向"列视觉与表头对齐 */
+  .data-table .chip {
+    padding:0; min-height:20px; min-width:22px;
+    justify-content:center;
+    font-size:12px; line-height:1;
+  }
 
   /* ─── 按钮 ─────────────────────────────────────────────────── */
   .btn {
@@ -688,6 +722,16 @@
   .text-faint { color:var(--text-3); }
   .text-xs { font-size:11px; }
   .text-sm { font-size:12px; }
+  /* 文本对齐工具类（特异度提到 .data-table 之上以覆盖默认 thead text-align:left） */
+  .text-right,
+  .data-table th.text-right,
+  .data-table td.text-right { text-align:right; }
+  .text-left,
+  .data-table th.text-left,
+  .data-table td.text-left { text-align:left; }
+  .text-center,
+  .data-table th.text-center,
+  .data-table td.text-center { text-align:center; }
 
   /* ─── 四联运营区（持仓 / 成交 / 风控 / 行情）────────────── */
   .ops-row {
@@ -780,6 +824,13 @@
   .risk-action { font-weight:600; color:var(--text); }
   .risk-time { color:var(--text-3); font-family:"JetBrains Mono", monospace; font-size:11px; flex-shrink:0; }
   .risk-row2 { margin-top:3px; color:var(--text-2); font-size:11.5px; }
+  .risk-row3 {
+    margin-top:4px;
+    color:var(--text-3);
+    font-size:11px;
+    line-height:1.45;
+    overflow-wrap:anywhere;
+  }
 
   /* ─── Modal ─────────────────────────────────────────────── */
   .modal-overlay {
@@ -855,7 +906,7 @@
               强制刷新所有数据
             </button>
             <div class="menu-divider"></div>
-            <div class="menu-section">调试 · 仅 Paper</div>
+            <div class="menu-section">策略 · 仅 Paper</div>
             <button class="menu-item" @click="randomOrder(); navMenuOpen=false" title="触发一次核心策略评估，不会伪造成交">
               触发评估
               <span class="menu-item-meta">S1/S2</span>
@@ -1113,7 +1164,7 @@
               <tr>
                 <th>时间</th><th>交易对</th><th>方向</th>
                 <th class="text-right">价格</th><th class="text-right">数量</th>
-                <th class="text-right">手续费</th>
+                <th class="text-right">手续费</th><th class="text-right">当笔盈亏</th>
               </tr>
             </thead>
             <tbody>
@@ -1124,8 +1175,9 @@
                 <td class="num">${{ fmtPrice(f.price) }}</td>
                 <td class="num">{{ fmt(f.quantity, 4) }}</td>
                 <td class="num muted">${{ fmt(f.fee, 4) }}</td>
+                <td class="num" :class="signClass(f.net_pnl)">{{ (f.net_pnl || 0)>=0?'+':'' }}${{ fmt(f.net_pnl) }}</td>
               </tr>
-              <tr v-if="filteredFills.length===0"><td colspan="6" class="table-empty">暂无成交</td></tr>
+              <tr v-if="filteredFills.length===0"><td colspan="7" class="table-empty">暂无成交</td></tr>
             </tbody>
           </table>
         </div>
@@ -1149,14 +1201,26 @@
               <div class="risk-sev" :class="riskSevClass(ev)"></div>
               <div class="risk-content">
                 <div class="risk-row1">
-                  <span class="risk-action">{{ ev.action || ev.kind || ev.event_type || '事件' }}</span>
+                  <span class="risk-action">{{ riskEventTitle(ev) }}</span>
                   <span class="risk-time">{{ tsToTime(ev.ts || ev.created_at) }}</span>
                 </div>
                 <div class="risk-row2">
+                  <span v-if="ev.source || ev.source_label" class="text-faint">来源 {{ ev.source_label || ev.source }}</span>
+                  <span v-if="ev.source && (ev.severity || riskEventReason(ev) || ev.symbol || ev.strategy || ev.related_id)" class="text-faint" style="margin:0 4px">·</span>
+                  <span v-if="ev.severity" class="chip" :class="riskSevChip(ev)">{{ ev.severity_label || ev.severity }}</span>
+                  <span v-if="ev.severity && (riskEventReason(ev) || ev.symbol || ev.strategy || ev.related_id)" class="text-faint" style="margin:0 4px">·</span>
+                  <span v-if="riskEventReason(ev)">原因 {{ riskEventReasonLabel(ev) }}</span>
+                  <span v-if="riskEventReason(ev) && (ev.symbol || ev.strategy || ev.related_id)" class="text-faint" style="margin:0 4px">·</span>
                   <span v-if="ev.symbol" class="text-mono">{{ ev.symbol }}</span>
-                  <span v-if="ev.symbol && (ev.severity || ev.note)" class="text-faint" style="margin:0 4px">·</span>
-                  <span v-if="ev.severity" class="chip" :class="riskSevChip(ev)">{{ ev.severity }}</span>
-                  <span v-if="ev.note" style="margin-left:6px">{{ ev.note }}</span>
+                  <span v-if="ev.symbol && (ev.strategy || ev.related_id)" class="text-faint" style="margin:0 4px">·</span>
+                  <span v-if="ev.strategy">{{ strategyName(ev.strategy) }}</span>
+                  <span v-if="ev.strategy && ev.related_id" class="text-faint" style="margin:0 4px">·</span>
+                  <span v-if="ev.related_id" class="text-mono">关联 {{ ev.related_id }}</span>
+                </div>
+                <div v-if="ev.detail || riskEventPayload(ev)" class="risk-row3">
+                  <span v-if="ev.detail">{{ ev.detail }}</span>
+                  <span v-if="ev.detail && riskEventPayload(ev)" class="text-faint" style="margin:0 4px">·</span>
+                  <span v-if="riskEventPayload(ev)" class="text-mono">{{ riskEventPayload(ev) }}</span>
                 </div>
               </div>
             </div>
@@ -1753,12 +1817,69 @@ createApp({
       if (['warn','warning','medium'].includes(sev)) return 'chip-warn'
       return 'chip-info'
     }
+    const RISK_TYPE_LABELS = {
+      order_rejected:'订单拒绝',
+      paper_signal_skipped:'纸面信号跳过',
+      risk_rejected:'风控拒单',
+    }
+    const RISK_REASON_LABELS = {
+      cooldown:'冷却期内跳过',
+      gross_leverage:'组合杠杆过高',
+      min_notional:'低于最小下单金额',
+      symbol_order_cap:'单币种订单数限制',
+      portfolio_notional_cap:'组合名义仓位限制',
+      daily_trade_cap:'日内交易次数限制',
+      no_stop_loss:'缺少止损',
+      position_cap:'仓位上限',
+      unknown_symbol:'未知交易对',
+    }
+    const RISK_PAYLOAD_KEY_LABELS = {
+      reason:'原因',
+      symbol:'交易对',
+      strategy:'策略',
+      side:'方向',
+      qty:'数量',
+      notional:'名义金额',
+      limit:'限制',
+    }
+    const riskEventReason = (ev) => {
+      const value = ev?.reason || ev?.payload?.reason || ev?.note || ''
+      return String(value || '').trim()
+    }
+    const riskEventReasonLabel = (ev) => {
+      const reason = riskEventReason(ev)
+      return ev?.reason_label || RISK_REASON_LABELS[reason] || reason
+    }
+    const riskEventTypeLabel = (ev) => {
+      const type = ev?.action || ev?.type || ev?.kind || ev?.event_type || '事件'
+      return ev?.type_label || RISK_TYPE_LABELS[type] || type
+    }
+    const riskEventTitle = (ev) => {
+      const type = riskEventTypeLabel(ev)
+      const reason = riskEventReasonLabel(ev)
+      return reason ? `${type} · ${reason}` : type
+    }
+    const riskEventPayload = (ev) => {
+      const payload = ev?.payload
+      if (!payload || typeof payload !== 'object') return String(ev?.detail || '').trim()
+      return Object.entries(payload)
+        .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '')
+        .map(([key, value]) => {
+          const label = RISK_PAYLOAD_KEY_LABELS[key] || key
+          const display = key === 'reason'
+            ? (RISK_REASON_LABELS[value] || value)
+            : (key === 'strategy' ? strategyName(value) : value)
+          return `${label}: ${display}`
+        })
+        .join(' · ')
+    }
     const tsToTime = (ts) => ts ? new Date(ts).toLocaleTimeString('zh-CN', {hour12:false}) : '-'
     // ─── 策略名中文化（英文 id → 中文显示名）──────────────────────
     const STRATEGY_NAMES = {
       'S1_btc_eth_trend':       { label:'S1 · 主流币趋势',  sub:'BTC/ETH · Donchian 突破 · 4h' },
       'S2_altcoin_reversal':    { label:'S2 · 中盘均值回归', sub:'TOP30 USDT · 1h' },
       'S3_funding_arb':         { label:'S3 · 资金费套利',  sub:'多空对冲' },
+      'paper_mean_reversion':   { label:'纸面 · 均值回归', sub:'1m 高频样本' },
       'explore_momentum':       { label:'探索 · 动量',     sub:'高频测试' },
       'explore_mean_reversion': { label:'探索 · 反转',     sub:'高频测试' },
       'explore_volatility':     { label:'探索 · 波动率',   sub:'高频测试' },
@@ -1793,6 +1914,20 @@ createApp({
       const rows = await fetch(API+'/api/prices').then(r=>r.json())
       Object.keys(prices).forEach(key => delete prices[key])
       Object.assign(prices, rows)
+    }
+    const syncLivePrices = (snapshot, latestOnly = null) => {
+      if (snapshot && typeof snapshot === 'object') {
+        for (const [sym, info] of Object.entries(snapshot)) {
+          if (!prices[sym]) prices[sym] = {}
+          Object.assign(prices[sym], info)
+        }
+      }
+      if (latestOnly && typeof latestOnly === 'object') {
+        for (const [sym, price] of Object.entries(latestOnly)) {
+          if (!prices[sym]) prices[sym] = {}
+          Object.assign(prices[sym], {price})
+        }
+      }
     }
 
     const loadAll = async () => {
@@ -2112,6 +2247,7 @@ createApp({
           open_positions_n: msg.open_positions_n,
           latest_prices: msg.latest_prices || {},
         })
+        syncLivePrices(msg.prices, msg.latest_prices)
         if (msg.positions) positions.value = msg.positions
       }
       ws.onclose = () => { setTimeout(connectWS, 3000) }
@@ -2180,6 +2316,7 @@ createApp({
       evalSchedule,
       fmt, fmtPrice, fmtCompact, tsToTime, statusLabel, signClass, healthBadge, orderStatusChip,
       priceAgeMs, freshnessText, riskSevClass, riskSevChip,
+      riskEventTitle, riskEventReason, riskEventReasonLabel, riskEventTypeLabel, riskEventPayload,
       strategyName, strategySub,
       loadAll, loadPrices, loadOrders, loadPriceHistory, loadBalanceHistory, loadSmallLivePreflight,
       dryRunSmallLiveOrder, submitSmallLiveOrder, setBalanceRange,

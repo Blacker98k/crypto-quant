@@ -7,6 +7,7 @@ creates simulated signals/orders/fills, and never talks to private trading APIs.
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
 from collections.abc import Callable
@@ -65,6 +66,14 @@ DEFAULT_TOP30_USDT = [
 
 _STABLE_BASES = {"USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "USDE", "EUR", "TRY"}
 _LEVERAGED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
+_EXPLORATION_MOMENTUM_MIN_MOVE_PCT = 0.0018
+_EXPLORATION_MEAN_REVERSION_MIN_DEVIATION_PCT = 0.0018
+_EXPLORATION_MEAN_REVERSION_TREND_LOOKBACK = 30
+_EXPLORATION_MEAN_REVERSION_TREND_BLOCK_PCT = 0.006
+_EXPLORATION_VOLATILITY_MIN_RANGE_PCT = 0.0035
+_EXPLORATION_VOLATILITY_CLOSE_EXTREME = 0.80
+_EXPLORATION_TARGET_RISK_MULTIPLIER = 2.2
+_EXPLORATION_SIGNAL_TTL_MS = 8 * 60_000
 _MAINSTREAM_BASES = {
     "BTC",
     "ETH",
@@ -408,20 +417,51 @@ class ExplorationStrategy:
         last = bars[-1]
         previous = bars[-2] if len(bars) >= 2 else last
         if self.name.endswith("mean_reversion"):
-            side = "long" if last.c <= _sma(bars[-self.min_bars :]) else "short"
-            rationale = {"type": "mean_reversion", "window": self.min_bars}
-        elif self.name.endswith("volatility"):
-            if last.c <= 0 or (last.h - last.l) / last.c < 0.0001:
+            sma = _sma(bars[-self.min_bars :])
+            if sma <= 0:
                 return None
-            side = "long" if last.c >= last.o else "short"
-            rationale = {"type": "atr_proxy", "range_pct": (last.h - last.l) / last.c}
+            deviation_pct = (last.c - sma) / sma
+            if abs(deviation_pct) < _EXPLORATION_MEAN_REVERSION_MIN_DEVIATION_PCT:
+                return None
+            side = "long" if deviation_pct <= 0 else "short"
+            trend = _local_trend_direction(
+                bars,
+                lookback=_EXPLORATION_MEAN_REVERSION_TREND_LOOKBACK,
+                threshold_pct=_EXPLORATION_MEAN_REVERSION_TREND_BLOCK_PCT,
+            )
+            if (side == "long" and trend == "down") or (side == "short" and trend == "up"):
+                return None
+            rationale = {
+                "type": "mean_reversion",
+                "window": self.min_bars,
+                "deviation_pct": deviation_pct,
+                "trend": trend,
+            }
+        elif self.name.endswith("volatility"):
+            range_pct = (last.h - last.l) / last.c if last.c > 0 else 0.0
+            if range_pct < _EXPLORATION_VOLATILITY_MIN_RANGE_PCT or last.h <= last.l:
+                return None
+            close_location = (last.c - last.l) / (last.h - last.l)
+            if close_location >= _EXPLORATION_VOLATILITY_CLOSE_EXTREME:
+                side = "long"
+            elif close_location <= 1.0 - _EXPLORATION_VOLATILITY_CLOSE_EXTREME:
+                side = "short"
+            else:
+                return None
+            rationale = {"type": "atr_proxy", "range_pct": range_pct, "close_location": close_location}
         else:
+            if previous.c <= 0 or abs(last.c - previous.c) / previous.c < _EXPLORATION_MOMENTUM_MIN_MOVE_PCT:
+                return None
             side = "long" if last.c >= previous.c else "short"
-            rationale = {"type": "momentum", "prev_close": previous.c}
+            rationale = {"type": "momentum", "prev_close": previous.c, "move_pct": (last.c - previous.c) / previous.c}
 
         stop_distance = max(abs(last.c - last.l), last.c * 0.003)
         stop_price = last.c - stop_distance if side == "long" else last.c + stop_distance
-        target_price = last.c + stop_distance * 1.6 if side == "long" else last.c - stop_distance * 1.6
+        target_price = (
+            last.c + stop_distance * _EXPLORATION_TARGET_RISK_MULTIPLIER
+            if side == "long"
+            else last.c - stop_distance * _EXPLORATION_TARGET_RISK_MULTIPLIER
+        )
         return Signal(
             side=side,
             symbol=symbol,
@@ -431,7 +471,7 @@ class ExplorationStrategy:
             confidence=self.confidence,
             suggested_size=0.0,
             rationale=rationale,
-            expires_in_ms=60_000,
+            expires_in_ms=_EXPLORATION_SIGNAL_TTL_MS,
         )
 
 
@@ -452,6 +492,7 @@ class DashboardPaperTrader:
         max_orders_per_symbol: int = 120,
         order_cap_window_ms: int = 60 * 60 * 1000,
         max_open_notional_usdt: float | None = None,
+        min_exit_age_ms: int = 60_000,
         risk_pipeline: DashboardRiskPipeline | None = None,
     ) -> None:
         self._repo = repo
@@ -470,6 +511,7 @@ class DashboardPaperTrader:
         self._max_open_notional_usdt = (
             max(float(max_open_notional_usdt), 0.0) if max_open_notional_usdt is not None else None
         )
+        self._min_exit_age_ms = max(int(min_exit_age_ms), 0)
         self._risk_pipeline = risk_pipeline or DashboardRiskPipeline()
         self._last_trade_ms: dict[tuple[str, str], int] = {}
         self._evaluations: dict[tuple[str, str], dict[str, Any]] = {}
@@ -503,6 +545,19 @@ class DashboardPaperTrader:
         for strategy in self._strategies:
             supports = getattr(strategy, "supports", None)
             if callable(supports) and not supports(bar.symbol, bar.timeframe):
+                continue
+            exit_handle = self._close_position_if_exit_triggered(bar, strategy.name, now)
+            if exit_handle is not None:
+                self._evaluations[(bar.symbol, strategy.name)] = {
+                    "symbol": bar.symbol,
+                    "strategy": strategy.name,
+                    "bars": len(bars),
+                    "ready": len(bars) >= strategy.min_bars,
+                    "last_eval_at": now,
+                    "last_signal": "exit",
+                }
+                self._last_trade_ms[(bar.symbol, strategy.name)] = now
+                handles.append(exit_handle)
                 continue
             signal = strategy.evaluate(bar.symbol, bars)
             self._evaluations[(bar.symbol, strategy.name)] = {
@@ -613,11 +668,12 @@ class DashboardPaperTrader:
             evaluation["throttle_reason"] = "portfolio_notional_cap"
             evaluation["max_open_notional_usdt"] = self._max_open_notional_usdt
             return None
-        raw_quantity = signal.suggested_size if signal.suggested_size > 0 else self._notional_for_strategy(strategy_name) / price
+        target_notional = self._notional_for_strategy(strategy_name)
+        raw_quantity = signal.suggested_size if signal.suggested_size > 0 else target_notional / price
         quantity = self._round_qty(signal.symbol, raw_quantity)
-        if quantity * price < 5.0:
-            self._record_risk("min_notional", "warn", strategy_name, signal, now_ms)
-            return None
+        min_notional = self._min_notional(signal.symbol)
+        if quantity * price < min_notional and raw_quantity * price >= min_notional:
+            quantity = self._round_qty(signal.symbol, min_notional / price, rounding="up")
         signal.suggested_size = quantity
         signal_id = self._insert_signal(strategy_name, signal, now_ms)
         side = "buy" if signal.side == "long" else "sell"
@@ -667,6 +723,68 @@ class DashboardPaperTrader:
         self._repo._conn.commit()
         self._last_trade_ms[key] = now_ms
         return handle
+
+    def _close_position_if_exit_triggered(
+        self,
+        bar: Bar,
+        strategy_name: str,
+        now_ms: int,
+    ) -> OrderHandle | None:
+        symbol_row = self._repo.get_symbol(bar.symbol)
+        if symbol_row is None:
+            return None
+        position = self._repo.get_open_position(int(symbol_row["id"]), strategy_name)
+        if position is None:
+            return None
+        if now_ms - int(position["opened_at"] or 0) <= self._min_exit_age_ms:
+            return None
+        signal_row = self._opening_signal_for_position(position)
+        if signal_row is None:
+            return None
+
+        reason = self._exit_reason(bar, position, signal_row, now_ms)
+        if reason is None:
+            return None
+
+        return self._engine.close_position(
+            symbol=bar.symbol,
+            strategy=strategy_name,
+            strategy_version=strategy_name,
+            client_order_id=f"{strategy_name}-{bar.symbol}-exit-{reason}-{now_ms}-{uuid.uuid4().hex[:6]}",
+            now_ms=now_ms,
+        )
+
+    def _opening_signal_for_position(self, position: dict[str, Any]) -> dict[str, Any] | None:
+        signal_id = position.get("opening_signal_id")
+        if signal_id is None:
+            return None
+        row = self._repo._conn.execute("SELECT * FROM signals WHERE id=?", (int(signal_id),)).fetchone()
+        return dict(row) if row is not None else None
+
+    @staticmethod
+    def _exit_reason(
+        bar: Bar,
+        position: dict[str, Any],
+        signal_row: dict[str, Any],
+        now_ms: int,
+    ) -> str | None:
+        stop = float(signal_row["stop_price"] or 0.0)
+        target = float(signal_row["target_price"] or 0.0)
+        side = str(position["side"])
+        if side == "long":
+            if stop > 0 and bar.l <= stop:
+                return "stop"
+            if target > 0 and bar.h >= target:
+                return "target"
+        else:
+            if stop > 0 and bar.h >= stop:
+                return "stop"
+            if target > 0 and bar.l <= target:
+                return "target"
+        expires_at = int(signal_row["expires_at"] or 0)
+        if expires_at > 0 and now_ms >= expires_at:
+            return "ttl"
+        return None
 
     def _insert_signal(self, strategy_name: str, signal: Signal, now_ms: int) -> int:
         symbol_row = self._repo.get_symbol(signal.symbol)
@@ -775,20 +893,28 @@ class DashboardPaperTrader:
                 return strategy.requirement
         return DataRequirement(symbols=[symbol], timeframes=["1m"])
 
-    def _round_qty(self, symbol: str, quantity: float) -> float:
+    def _min_notional(self, symbol: str) -> float:
+        row = self._repo.get_symbol(symbol)
+        if row is None:
+            return 5.0
+        return max(float(row["min_notional"] or 0.0), 5.0)
+
+    def _round_qty(self, symbol: str, quantity: float, *, rounding: str = "down") -> float:
         row = self._repo.get_symbol(symbol)
         lot_size = float(row["lot_size"] if row is not None else 0.0001)
         if lot_size <= 0:
             return round(quantity, 8)
-        steps = max(int(quantity / lot_size), 1)
+        raw_steps = quantity / lot_size
+        steps = math.ceil(raw_steps) if rounding == "up" else int(raw_steps)
+        steps = max(steps, 1)
         return round(steps * lot_size, 8)
 
 
-def default_exploration_strategies() -> list[ExplorationStrategy]:
+def default_exploration_strategies(*, prefix: str = "explore") -> list[ExplorationStrategy]:
     return [
-        ExplorationStrategy("explore_momentum", min_bars=2),
-        ExplorationStrategy("explore_mean_reversion", min_bars=3),
-        ExplorationStrategy("explore_volatility", min_bars=2),
+        ExplorationStrategy(f"{prefix}_momentum", min_bars=2),
+        ExplorationStrategy(f"{prefix}_mean_reversion", min_bars=3),
+        ExplorationStrategy(f"{prefix}_volatility", min_bars=2),
     ]
 
 
@@ -797,7 +923,7 @@ def default_dashboard_strategies(
     feed: Any,
     repo: SqliteRepo,
     account_equity: Callable[[], float] | float = 10_000.0,
-) -> list[CoreStrategyAdapter]:
+) -> list[_StrategyLike]:
     return [
         CoreStrategyAdapter(
             S1BtcEthTrend(),
@@ -815,6 +941,7 @@ def default_dashboard_strategies(
             follow_symbols=True,
             trigger_timeframes=["1h"],
         ),
+        ExplorationStrategy("paper_mean_reversion", min_bars=3),
     ]
 
 
@@ -831,6 +958,26 @@ def _is_mainstream_usdt_symbol(symbol: str) -> bool:
 
 def _sma(bars: list[Bar]) -> float:
     return sum(bar.c for bar in bars) / len(bars)
+
+
+def _local_trend_direction(
+    bars: list[Bar],
+    *,
+    lookback: int,
+    threshold_pct: float,
+) -> str:
+    if len(bars) <= lookback:
+        return "flat"
+    start = bars[-lookback - 1].c
+    end = bars[-1].c
+    if start <= 0:
+        return "flat"
+    move_pct = (end - start) / start
+    if move_pct >= threshold_pct:
+        return "up"
+    if move_pct <= -threshold_pct:
+        return "down"
+    return "flat"
 
 
 def _default_tick_size(symbol: str) -> float:

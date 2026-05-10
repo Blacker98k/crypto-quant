@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
@@ -97,6 +98,12 @@ reconciliation_required: true
         encoding="utf-8",
     )
     return config_path
+
+
+def test_paper_strategy_notional_multipliers_keep_profitable_strategy_only() -> None:
+    multipliers = dashboard_server._paper_strategy_notional_multipliers()
+
+    assert multipliers == {"paper_mean_reversion": 1.0}
 
 
 def test_dashboard_small_live_preflight_exposes_safe_readiness_without_secrets(
@@ -222,7 +229,59 @@ def test_dashboard_risk_events_endpoint_parses_payload(
 
     assert [row["id"] for row in rows] == [second_id, first_id]
     assert rows[0]["payload"] == {"reason": "gross_leverage"}
+    assert rows[0]["reason"] == "gross_leverage"
+    assert rows[0]["type_label"] == "订单拒绝"
+    assert rows[0]["reason_label"] == "组合杠杆过高"
+    assert rows[0]["action"] == "order_rejected"
+    assert rows[0]["source"] == "L3"
+    assert rows[0]["source_label"] == "组合风控"
+    assert rows[0]["severity_label"] == "严重"
+    assert rows[0]["ts"] == 1_700_000_001_000
+    assert rows[0]["detail"] == "组合杠杆过高"
     assert rows[1]["payload"] == {"reason": "min_notional"}
+    assert rows[1]["reason"] == "min_notional"
+    assert rows[1]["reason_label"] == "低于最小下单金额"
+
+
+def test_dashboard_risk_events_endpoint_flattens_signal_context(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    event_id = repo.insert_risk_event(
+        {
+            "type": "paper_signal_skipped",
+            "severity": "warn",
+            "source": "dashboard_trader",
+            "related_id": None,
+            "payload": '{"reason":"min_notional","symbol":"BTCUSDT","strategy":"paper_momentum"}',
+            "captured_at": 1_700_000_000_000,
+        }
+    )
+    app = _build_app(tmp_path, tmp_db)
+
+    rows: list[dict[str, Any]] = _call_route(app, "/api/risk_events", limit=10, since_ms=None)
+
+    assert rows == [
+        {
+            "id": event_id,
+            "type": "paper_signal_skipped",
+            "action": "paper_signal_skipped",
+            "severity": "warn",
+            "source": "dashboard_trader",
+            "related_id": None,
+            "payload": {"reason": "min_notional", "symbol": "BTCUSDT", "strategy": "paper_momentum"},
+            "reason": "min_notional",
+            "reason_label": "低于最小下单金额",
+            "type_label": "纸面信号跳过",
+            "severity_label": "警告",
+            "source_label": "模拟交易调度",
+            "symbol": "BTCUSDT",
+            "strategy": "paper_momentum",
+            "detail": "低于最小下单金额 / BTCUSDT / paper_momentum",
+            "captured_at": 1_700_000_000_000,
+            "ts": 1_700_000_000_000,
+        }
+    ]
 
 
 def test_dashboard_status_includes_risk_event_counts(
@@ -413,6 +472,97 @@ def test_dashboard_status_filters_legacy_strategy_counts_for_active_runtime(
     assert payload["fills_count"] == 1
 
 
+def test_dashboard_fills_endpoint_reports_per_fill_pnl(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "type": "perp",
+                "base": "BTC",
+                "quote": "USDT",
+                "tick_size": 0.1,
+                "lot_size": 0.001,
+                "min_notional": 10.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    buy_order_id = repo.insert_order(
+        {
+            "client_order_id": "fill-pnl-buy",
+            "symbol_id": symbol["id"],
+            "side": "buy",
+            "type": "market",
+            "price": 100.0,
+            "stop_price": None,
+            "quantity": 1.0,
+            "filled_qty": 1.0,
+            "avg_fill_price": 100.0,
+            "status": "filled",
+            "purpose": "entry",
+            "strategy_version": "paper_momentum",
+            "placed_at": 1_700_000_000_000,
+            "updated_at": 1_700_000_000_000,
+        }
+    )
+    repo.insert_fill(
+        {
+            "order_id": buy_order_id,
+            "exchange_fill_id": "fill-pnl-buy",
+            "price": 100.0,
+            "quantity": 1.0,
+            "fee": 0.1,
+            "fee_currency": "USDT",
+            "ts": 1_700_000_000_000,
+        }
+    )
+    sell_order_id = repo.insert_order(
+        {
+            "client_order_id": "fill-pnl-sell",
+            "symbol_id": symbol["id"],
+            "side": "sell",
+            "type": "market",
+            "price": 110.0,
+            "stop_price": None,
+            "quantity": 1.0,
+            "filled_qty": 1.0,
+            "avg_fill_price": 110.0,
+            "status": "filled",
+            "purpose": "exit",
+            "strategy_version": "paper_momentum",
+            "placed_at": 1_700_000_001_000,
+            "updated_at": 1_700_000_001_000,
+        }
+    )
+    repo.insert_fill(
+        {
+            "order_id": sell_order_id,
+            "exchange_fill_id": "fill-pnl-sell",
+            "price": 110.0,
+            "quantity": 1.0,
+            "fee": 0.1,
+            "fee_currency": "USDT",
+            "ts": 1_700_000_001_000,
+        }
+    )
+    app = _build_app(tmp_path, tmp_db)
+
+    rows: list[dict[str, Any]] = _call_route(app, "/api/fills", limit=10)
+
+    assert rows[0]["id"] == 2
+    assert rows[0]["gross_pnl"] == 10.0
+    assert rows[0]["net_pnl"] == 9.9
+    assert rows[1]["id"] == 1
+    assert rows[1]["gross_pnl"] == 0.0
+    assert rows[1]["net_pnl"] == -0.1
+
+
 def test_dashboard_pnl_windows_use_shanghai_calendar_boundaries() -> None:
     shanghai = timezone(timedelta(hours=8))
     now_s = datetime(2026, 5, 9, 19, 30, tzinfo=shanghai).timestamp()
@@ -472,12 +622,12 @@ def test_dashboard_status_reports_futures_equity_and_available_balance(
 
     payload = _call_route(app, "/api/status")
 
-    assert payload["initial_balance"] == 10_000.0
-    assert payload["portfolio_value"] == 10_050.0
-    assert payload["account_equity"] == 10_050.0
+    assert payload["initial_balance"] == 1_000.0
+    assert payload["portfolio_value"] == 1_050.0
+    assert payload["account_equity"] == 1_050.0
     assert payload["used_margin"] == 202.0
-    assert payload["usdt_balance"] == 9_848.0
-    assert payload["available_balance"] == 9_848.0
+    assert payload["usdt_balance"] == 848.0
+    assert payload["available_balance"] == 848.0
     assert payload["day_pnl"]["pnl"] == 50.0
     assert payload["day_pnl"]["unrealized_pnl"] == 50.0
 
@@ -564,10 +714,10 @@ def test_dashboard_status_reconciles_positions_fees_and_margin(
     assert payload["fees_paid"] == 2.0
     assert payload["realized_pnl"] == 8.0
     assert payload["unrealized_pnl"] == 50.0
-    assert payload["portfolio_value"] == 10_058.0
+    assert payload["portfolio_value"] == 1_058.0
     assert payload["open_notional"] == 5_050.0
     assert payload["used_margin"] == 202.0
-    assert payload["available_balance"] == 9_856.0
+    assert payload["available_balance"] == 856.0
 
 
 def test_dashboard_positions_preserve_low_price_precision(
@@ -619,6 +769,76 @@ def test_dashboard_positions_preserve_low_price_precision(
 
     assert positions[0]["entry_price"] == 0.004251
     assert positions[0]["current_price"] == 0.004267
+
+
+def test_dashboard_price_refresh_includes_open_position_symbols(tmp_db: sqlite3.Connection) -> None:
+    repo = SqliteRepo(tmp_db)
+    repo.upsert_symbols(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "DOGEUSDT",
+                "type": "perp",
+                "base": "DOGE",
+                "quote": "USDT",
+                "tick_size": 0.00001,
+                "lot_size": 1.0,
+                "min_notional": 5.0,
+                "listed_at": 1,
+            }
+        ]
+    )
+    symbol = repo.get_symbol("DOGEUSDT")
+    assert symbol is not None
+    repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "paper_momentum",
+            "strategy_version": "paper_momentum",
+            "opening_signal_id": None,
+            "side": "long",
+            "qty": 100.0,
+            "avg_entry_price": 0.1,
+            "current_price": 0.1,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": None,
+            "opened_at": 1_700_000_000_000,
+            "closed_at": None,
+        }
+    )
+
+    symbols = dashboard_server._symbols_with_open_positions(repo, ["BTCUSDT"])
+
+    assert symbols == ["BTCUSDT", "DOGEUSDT"]
+
+
+def test_dashboard_price_snapshot_matches_prices_endpoint_shape() -> None:
+    cache = MemoryCache(max_bars=10)
+    cache.update_latest_price("BTCUSDT", 50_000.0, source_ts=1_700_000_000_000, updated_at_ms=1_700_000_001_000)
+
+    payload = dashboard_server._price_snapshot(
+        cache,
+        {"BTCUSDT": {"change_24h": 1.25, "high_24h": 51_000.0, "low_24h": 49_000.0, "quote_volume": 123.0}},
+        now_ms=1_700_000_002_000,
+    )
+
+    assert payload == {
+        "BTCUSDT": {
+            "price": 50_000.0,
+            "change_24h": 1.25,
+            "high_24h": 51_000.0,
+            "low_24h": 49_000.0,
+            "source_ts": 1_700_000_000_000,
+            "updated_at": 1_700_000_001_000,
+            "age_ms": 1_000,
+            "quote_volume": 123.0,
+        }
+    }
 
 
 def test_dashboard_status_marks_stale_feeder_unhealthy(
@@ -742,6 +962,158 @@ async def test_live_feeder_falls_back_to_direct_ws_when_proxy_fails(
     assert _ProxyAwareWs.instances[1].connect_proxies == [""]
     assert feeder._proxy == ""
     assert feeder._ws is _ProxyAwareWs.instances[1]
+
+
+async def test_live_feeder_start_keeps_rest_fallback_running_when_ws_unavailable(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: Any
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, symbols=["BTCUSDT"])
+
+    async def _refresh_universe(*, timeframes: tuple[str, ...] | None = None) -> None:
+        feeder._symbols = ["BTCUSDT"]
+
+    async def _connect_ws() -> None:
+        raise RuntimeError("ws unavailable")
+
+    async def _idle_loop() -> None:
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(feeder, "_refresh_universe", _refresh_universe)
+    monkeypatch.setattr(feeder, "_connect_ws", _connect_ws)
+    monkeypatch.setattr(feeder, "_lazy_load_exchange", _idle_loop)
+    monkeypatch.setattr(feeder, "_engine_loop", _idle_loop)
+    monkeypatch.setattr(feeder, "_rest_price_loop", _idle_loop)
+    monkeypatch.setattr(feeder, "_bar_watchdog_loop", _idle_loop)
+    monkeypatch.setattr(feeder, "_rest_bar_fallback_loop", _idle_loop)
+
+    await feeder.start()
+
+    try:
+        assert feeder._running is True
+        assert feeder._task is not None
+        assert feeder._price_task is not None
+        assert feeder._watchdog_task is not None
+        assert feeder._rest_bar_task is not None
+        row = repo._conn.execute(
+            "SELECT status, note FROM run_log WHERE endpoint=?",
+            ("dashboard_ws_connect",),
+        ).fetchone()
+        assert row["status"] == "fail"
+        assert "ws unavailable" in row["note"]
+    finally:
+        await feeder.stop()
+
+
+async def test_live_feeder_start_connects_ws_after_fast_1m_warmup(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: Any
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, symbols=["BTCUSDT"])
+    events: list[tuple[str, tuple[str, ...] | None]] = []
+
+    async def _refresh_universe(*, timeframes: tuple[str, ...] | None = None) -> None:
+        events.append(("refresh_universe", timeframes))
+        feeder._symbols = ["BTCUSDT"]
+
+    async def _backfill_recent_bars(symbols: list[str], *, publish: bool = False, publish_latest: bool = False) -> None:
+        events.append(("background_warmup", ("publish_latest",) if publish_latest else None))
+
+    async def _connect_ws() -> None:
+        events.append(("connect_ws", None))
+
+    async def _idle_loop() -> None:
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(feeder, "_refresh_universe", _refresh_universe)
+    monkeypatch.setattr(feeder, "_backfill_recent_bars", _backfill_recent_bars)
+    monkeypatch.setattr(feeder, "_connect_ws", _connect_ws)
+    monkeypatch.setattr(feeder, "_lazy_load_exchange", _idle_loop)
+    monkeypatch.setattr(feeder, "_engine_loop", _idle_loop)
+    monkeypatch.setattr(feeder, "_rest_price_loop", _idle_loop)
+    monkeypatch.setattr(feeder, "_bar_watchdog_loop", _idle_loop)
+    monkeypatch.setattr(feeder, "_rest_bar_fallback_loop", _idle_loop)
+    monkeypatch.setattr(feeder, "_ws_reconnect_loop", _idle_loop)
+
+    await feeder.start()
+    try:
+        await asyncio.sleep(0)
+        assert events[:2] == [
+            ("refresh_universe", ("1m",)),
+            ("connect_ws", None),
+        ]
+        assert ("background_warmup", ("publish_latest",)) in events
+    finally:
+        await feeder.stop()
+
+
+async def test_live_feeder_reconnect_loop_recovers_ws_after_start_failure(
+    tmp_path: Path, tmp_db: sqlite3.Connection
+) -> None:
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, symbols=["BTCUSDT"])
+    attempts = 0
+
+    class _ConnectedWs:
+        _running = True
+
+    async def _connect_ws() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary ws outage")
+        feeder._ws = _ConnectedWs()  # type: ignore[assignment]
+        feeder._running = False
+
+    feeder._running = True
+    feeder._connect_ws = _connect_ws  # type: ignore[method-assign]
+
+    await feeder._ws_reconnect_loop(interval_sec=0)
+
+    assert attempts == 2
+    assert feeder._ws is not None
+    row = repo._conn.execute(
+        "SELECT status FROM run_log WHERE endpoint=? ORDER BY id DESC LIMIT 1",
+        ("dashboard_ws_reconnect",),
+    ).fetchone()
+    assert row["status"] == "ok"
+
+
+async def test_live_feeder_ws_connect_times_out_slow_candidates(
+    tmp_path: Path, tmp_db: sqlite3.Connection, monkeypatch: Any
+) -> None:
+    class _SlowWs:
+        def subscribe_candles(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def subscribe_tickers(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def connect(self, proxy: str = "") -> None:
+            await asyncio.sleep(3600)
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(dashboard_server, "WsSubscriber", lambda *args, **kwargs: _SlowWs())
+    repo = SqliteRepo(tmp_db)
+    cache = MemoryCache(max_bars=10)
+    parquet_io = ParquetIO(data_root=tmp_path / "parquet")
+    engine = PaperMatchingEngine(repo, get_price=lambda symbol: 50_000.0)
+    feeder = LiveDataFeeder(cache, parquet_io, repo, engine, symbols=["BTCUSDT"])
+    feeder._ws_connect_timeout_sec = 0.01
+
+    with pytest.raises(TimeoutError):
+        await feeder._connect_ws()
 
 
 async def test_live_feeder_falls_back_to_direct_rest_when_proxy_fails(

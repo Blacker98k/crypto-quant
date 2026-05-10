@@ -57,6 +57,46 @@ def test_dashboard_static_page_renders_data_health_panel() -> None:
     assert "recent_failures" in html
 
 
+def test_dashboard_static_page_shows_risk_event_details() -> None:
+    html = _html()
+    for token in [
+        "riskEventTitle",
+        "riskEventReason",
+        "riskEventPayload",
+        "riskEventTypeLabel",
+        "riskEventReasonLabel",
+        "RISK_PAYLOAD_KEY_LABELS",
+        "strategyName(ev.strategy)",
+        "ev.source",
+        "ev.strategy",
+        "ev.symbol",
+        "ev.related_id",
+    ]:
+        assert token in html
+
+
+def test_dashboard_static_page_shows_fill_pnl_column() -> None:
+    html = _html()
+    for token in [
+        "当笔盈亏",
+        "f.net_pnl",
+        "filteredFills.length===0",
+        "colspan=\"7\"",
+    ]:
+        assert token in html
+
+
+def test_dashboard_static_page_syncs_prices_from_websocket() -> None:
+    html = _html()
+    for token in [
+        "syncLivePrices",
+        "msg.prices",
+        "msg.latest_prices",
+        "Object.assign(prices[sym]",
+    ]:
+        assert token in html
+
+
 # ─── 2. 关键状态与操作 ────────────────────────────────────────────────
 
 

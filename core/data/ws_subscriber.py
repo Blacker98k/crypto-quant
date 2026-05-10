@@ -14,6 +14,13 @@ from core.data.exchange.base import Bar
 from core.data.symbol import normalize_symbol
 
 
+def _default_client_session() -> Any:
+    import aiohttp
+
+    connector = aiohttp.TCPConnector(resolver=aiohttp.ThreadedResolver())
+    return aiohttp.ClientSession(connector=connector)
+
+
 class _CacheLike(Protocol):
     def push_bar(self, bar: Bar) -> None: ...
     def update_latest_price(self, symbol: str, price: float, source_ts: int | None = None) -> None: ...
@@ -69,9 +76,7 @@ class WsSubscriber:
 
     async def _open_connection(self, proxy: str = "") -> None:
         """Open one combined-stream connection."""
-        import aiohttp
-
-        self._session = self._session_factory() if self._session_factory else aiohttp.ClientSession()
+        self._session = self._session_factory() if self._session_factory else _default_client_session()
         self._ws = await self._session.ws_connect(
             self._stream_url(),
             heartbeat=30,

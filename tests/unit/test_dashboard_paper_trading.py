@@ -208,6 +208,102 @@ def test_bars_from_binance_klines_normalizes_closed_1m_rows() -> None:
     ]
 
 
+def test_exploration_momentum_requires_move_above_cost_buffer() -> None:
+    strategy = ExplorationStrategy("paper_momentum", min_bars=2)
+    tiny_move = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.05, 99.95, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.06, 99.96, 100.05, 10, closed=True),
+    ]
+    tradable_move = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.05, 99.95, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.65, 99.96, 100.5, 10, closed=True),
+    ]
+
+    assert strategy.evaluate("BTCUSDT", tiny_move) is None
+    assert strategy.evaluate("BTCUSDT", tradable_move) is not None
+
+
+def test_exploration_momentum_samples_quiet_but_tradeable_move() -> None:
+    strategy = ExplorationStrategy("paper_momentum", min_bars=2)
+    quiet_tradeable_move = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.05, 99.95, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.26, 99.96, 100.22, 10, closed=True),
+    ]
+
+    assert strategy.evaluate("BTCUSDT", quiet_tradeable_move) is not None
+
+
+def test_exploration_mean_reversion_requires_sma_deviation() -> None:
+    strategy = ExplorationStrategy("paper_mean_reversion", min_bars=3)
+    near_sma = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_120_000, 100, 100.1, 99.9, 99.98, 10, closed=True),
+    ]
+    far_from_sma = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_120_000, 100, 100.1, 99.3, 99.4, 10, closed=True),
+    ]
+
+    assert strategy.evaluate("BTCUSDT", near_sma) is None
+    assert strategy.evaluate("BTCUSDT", far_from_sma) is not None
+
+
+def test_exploration_mean_reversion_blocks_countertrend_entries() -> None:
+    strategy = ExplorationStrategy("paper_mean_reversion", min_bars=3)
+    bars = [
+        Bar(
+            "BTCUSDT",
+            "1m",
+            1_700_000_000_000 + index * 60_000,
+            100.0 - index * 0.08,
+            100.08 - index * 0.08,
+            99.92 - index * 0.08,
+            100.0 - index * 0.08,
+            10,
+            closed=True,
+        )
+        for index in range(31)
+    ]
+    bars[-1] = Bar("BTCUSDT", "1m", bars[-1].ts, 97.4, 97.45, 97.2, 97.3, 10, closed=True)
+
+    assert strategy.evaluate("BTCUSDT", bars) is None
+
+
+def test_exploration_volatility_requires_decisive_range() -> None:
+    strategy = ExplorationStrategy("paper_volatility", min_bars=2)
+    narrow_bar = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.08, 99.95, 100.02, 10, closed=True),
+    ]
+    decisive_bar = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.95, 99.9, 100.9, 10, closed=True),
+    ]
+
+    assert strategy.evaluate("BTCUSDT", narrow_bar) is None
+    assert strategy.evaluate("BTCUSDT", decisive_bar) is not None
+
+
+def test_exploration_strategy_uses_wider_profit_target_and_longer_ttl() -> None:
+    strategy = ExplorationStrategy("paper_mean_reversion", min_bars=3)
+    bars = [
+        Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 100.1, 99.9, 100, 10, closed=True),
+        Bar("BTCUSDT", "1m", 1_700_000_120_000, 100, 100.1, 99.3, 99.4, 10, closed=True),
+    ]
+
+    signal = strategy.evaluate("BTCUSDT", bars)
+
+    assert signal is not None
+    assert signal.expires_in_ms >= 5 * 60_000
+    assert signal.target_price is not None
+    reward = abs(signal.target_price - bars[-1].c)
+    risk = abs(bars[-1].c - float(signal.stop_price))
+    assert reward / risk >= 2.0
+
+
 def test_dashboard_paper_trader_places_parallel_strategy_fills(
     sqlite_repo: SqliteRepo,
 ) -> None:
@@ -228,7 +324,7 @@ def test_dashboard_paper_trader_places_parallel_strategy_fills(
         cooldown_ms=0,
     )
     first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
-    second = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 103, 99, 102, 12, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 103, 99, 102.5, 12, closed=True)
 
     trader.on_bar(first, now_ms=first.ts)
     handles = trader.on_bar(second, now_ms=second.ts)
@@ -248,6 +344,72 @@ def test_dashboard_paper_trader_places_parallel_strategy_fills(
         "explore_mean_reversion",
         "explore_volatility",
     }
+
+
+def test_dashboard_paper_trader_closes_position_when_target_is_hit(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[ExplorationStrategy("paper_momentum", min_bars=2)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    entry = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 103, 99, 102, 12, closed=True)
+    target_hit = Bar("BTCUSDT", "1m", 1_700_000_121_000, 102, 109, 101.5, 106, 12, closed=True)
+
+    trader.on_bar(first, now_ms=first.ts)
+    trader.on_bar(entry, now_ms=entry.ts)
+    handles = trader.on_bar(target_hit, now_ms=target_hit.ts)
+
+    order_rows = sqlite_repo._conn.execute("SELECT * FROM orders ORDER BY id").fetchall()
+    fill_rows = sqlite_repo._conn.execute("SELECT * FROM fills ORDER BY id").fetchall()
+    open_positions = sqlite_repo._conn.execute("SELECT * FROM positions WHERE closed_at IS NULL").fetchall()
+    closed_positions = sqlite_repo._conn.execute("SELECT * FROM positions WHERE closed_at IS NOT NULL").fetchall()
+
+    assert [handle.status for handle in handles] == ["filled"]
+    assert [row["purpose"] for row in order_rows] == ["entry", "exit"]
+    assert len(fill_rows) == 2
+    assert open_positions == []
+    assert len(closed_positions) == 1
+
+
+def test_dashboard_paper_trader_closes_position_when_signal_expires(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[ExplorationStrategy("paper_momentum", min_bars=2)],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99.8, 100, 10, closed=True)
+    entry = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 102.2, 101.8, 102, 12, closed=True)
+    expired = Bar("BTCUSDT", "1m", 1_700_000_541_000, 102, 102.2, 101.9, 102.1, 12, closed=True)
+
+    trader.on_bar(first, now_ms=first.ts)
+    trader.on_bar(entry, now_ms=entry.ts)
+    handles = trader.on_bar(expired, now_ms=expired.ts)
+
+    order_rows = sqlite_repo._conn.execute("SELECT purpose FROM orders ORDER BY id").fetchall()
+    open_positions = sqlite_repo._conn.execute("SELECT * FROM positions WHERE closed_at IS NULL").fetchall()
+
+    assert [handle.status for handle in handles] == ["filled"]
+    assert [row["purpose"] for row in order_rows] == ["entry", "exit"]
+    assert open_positions == []
 
 
 def test_dashboard_paper_trader_scales_notional_by_strategy(
@@ -288,6 +450,35 @@ def test_dashboard_paper_trader_scales_notional_by_strategy(
     )
 
 
+def test_dashboard_paper_trader_rounds_quantity_up_to_min_notional(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol_with_limits(sqlite_repo, symbol="UNIUSDT", tick_size=0.001, lot_size=0.01, min_notional=5.0)
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["UNIUSDT"],
+        strategies=[ExplorationStrategy("paper_momentum", min_bars=2)],
+        notional_usdt=20.0,
+        strategy_notional_multipliers={"paper_momentum": 0.25},
+        cooldown_ms=0,
+    )
+    warmup = Bar("UNIUSDT", "1m", 1_700_000_000_000, 3.8, 3.82, 3.79, 3.8, 10, closed=True)
+    signal_bar = Bar("UNIUSDT", "1m", 1_700_000_060_000, 3.8, 3.86, 3.79, 3.84, 10, closed=True)
+
+    trader.on_bar(warmup, now_ms=warmup.ts)
+    handles = trader.on_bar(signal_bar, now_ms=signal_bar.ts)
+
+    fill = sqlite_repo._conn.execute("SELECT price, quantity FROM fills").fetchone()
+    risk = sqlite_repo._conn.execute("SELECT * FROM risk_events").fetchone()
+    assert [handle.status for handle in handles] == ["filled"]
+    assert fill["price"] * fill["quantity"] >= 5.0
+    assert risk is None
+
+
 def test_dashboard_paper_trader_rejects_orders_through_l1_risk(
     sqlite_repo: SqliteRepo,
 ) -> None:
@@ -299,12 +490,14 @@ def test_dashboard_paper_trader_rejects_orders_through_l1_risk(
         cache=cache,
         engine=engine,
         symbols=["BTCUSDT"],
-        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=2)],
         notional_usdt=25.0,
         cooldown_ms=0,
     )
-    bar = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    warmup = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.2, 99.9, 100, 10, closed=True)
+    bar = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 102.2, 101.7, 102, 10, closed=True)
 
+    trader.on_bar(warmup, now_ms=warmup.ts)
     handles = trader.on_bar(bar, now_ms=bar.ts)
 
     order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
@@ -390,7 +583,7 @@ def test_dashboard_paper_trader_runs_core_strategy_adapter(
     assert [row["strategy_version"] for row in order_rows] == ["S_core_test"]
 
 
-def test_default_dashboard_strategies_use_core_strategies_by_default(
+def test_default_dashboard_strategies_include_core_and_profitable_paper_strategy_only(
     tmp_path: Path,
     sqlite_repo: SqliteRepo,
 ) -> None:
@@ -401,7 +594,12 @@ def test_default_dashboard_strategies_use_core_strategies_by_default(
 
     assert "S1_btc_eth_trend" in names
     assert "S2_altcoin_reversal" in names
+    assert "paper_mean_reversion" in names
+    assert "paper_momentum" not in names
+    assert "paper_volatility" not in names
     assert "explore_momentum" not in names
+    assert "explore_mean_reversion" not in names
+    assert "explore_volatility" not in names
     assert "S3_pair_trading" not in names
 
 
@@ -520,13 +718,15 @@ def test_dashboard_paper_trader_does_not_record_cooldown_as_risk_event(
         cache=cache,
         engine=engine,
         symbols=["BTCUSDT"],
-        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=2)],
         notional_usdt=25.0,
         cooldown_ms=120_000,
     )
-    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
-    second = Bar("BTCUSDT", "1m", 1_700_000_030_000, 100, 103, 99, 102, 12, closed=True)
+    warmup = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.2, 99.9, 100, 10, closed=True)
+    first = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 102.2, 101.7, 102, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_090_000, 102, 102.45, 102.1, 102.4, 12, closed=True)
 
+    trader.on_bar(warmup, now_ms=warmup.ts)
     trader.on_bar(first, now_ms=first.ts)
     handles = trader.on_bar(second, now_ms=second.ts)
 
@@ -546,15 +746,17 @@ def test_dashboard_paper_trader_order_cap_uses_rolling_window(
         cache=cache,
         engine=engine,
         symbols=["BTCUSDT"],
-        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=2)],
         notional_usdt=25.0,
         cooldown_ms=0,
         max_orders_per_symbol=1,
         order_cap_window_ms=60_000,
     )
-    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
-    second = Bar("BTCUSDT", "1m", 1_700_000_120_000, 100, 103, 99, 102, 12, closed=True)
+    warmup = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.2, 99.9, 100, 10, closed=True)
+    first = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 102.2, 101.7, 102, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_180_000, 102, 102.6, 102.1, 102.5, 12, closed=True)
 
+    trader.on_bar(warmup, now_ms=warmup.ts)
     first_handles = trader.on_bar(first, now_ms=first.ts)
     second_handles = trader.on_bar(second, now_ms=second.ts)
 
@@ -577,15 +779,17 @@ def test_dashboard_paper_trader_order_cap_throttles_without_risk_event(
         cache=cache,
         engine=engine,
         symbols=["BTCUSDT"],
-        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=2)],
         notional_usdt=25.0,
         cooldown_ms=0,
         max_orders_per_symbol=1,
         order_cap_window_ms=60_000,
     )
-    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
-    second = Bar("BTCUSDT", "1m", 1_700_000_030_000, 100, 103, 99, 102, 12, closed=True)
+    warmup = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.2, 99.9, 100, 10, closed=True)
+    first = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 102.2, 101.7, 102, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_090_000, 102, 102.6, 102.1, 102.5, 12, closed=True)
 
+    trader.on_bar(warmup, now_ms=warmup.ts)
     first_handles = trader.on_bar(first, now_ms=first.ts)
     second_handles = trader.on_bar(second, now_ms=second.ts)
     matrix = trader.strategy_matrix()
@@ -611,15 +815,17 @@ def test_dashboard_paper_trader_notional_cap_blocks_adds_but_allows_reductions(
         cache=cache,
         engine=engine,
         symbols=["BTCUSDT"],
-        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=2)],
         notional_usdt=25.0,
         cooldown_ms=0,
         max_open_notional_usdt=25.0,
     )
-    first = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
-    second = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 103, 99, 102, 12, closed=True)
-    third = Bar("BTCUSDT", "1m", 1_700_000_120_000, 102, 103, 98, 99, 12, closed=True)
+    warmup = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.2, 99.9, 100, 10, closed=True)
+    first = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 102.2, 101.7, 102, 10, closed=True)
+    second = Bar("BTCUSDT", "1m", 1_700_000_090_000, 102, 102.6, 102.1, 102.5, 12, closed=True)
+    third = Bar("BTCUSDT", "1m", 1_700_000_120_000, 102.4, 102.45, 101.3, 101.5, 12, closed=True)
 
+    trader.on_bar(warmup, now_ms=warmup.ts)
     first_handles = trader.on_bar(first, now_ms=first.ts)
     second_handles = trader.on_bar(second, now_ms=second.ts)
     capped_matrix = trader.strategy_matrix()
@@ -649,11 +855,13 @@ def test_dashboard_trading_endpoints_expose_universe_matrix_and_recent_trades(
         cache=cache,
         engine=engine,
         symbols=["BTCUSDT"],
-        strategies=[ExplorationStrategy("explore_momentum", min_bars=1)],
+        strategies=[ExplorationStrategy("explore_momentum", min_bars=2)],
         notional_usdt=25.0,
         cooldown_ms=0,
     )
-    bar = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 101, 99, 100, 10, closed=True)
+    warmup = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.2, 99.9, 100, 10, closed=True)
+    bar = Bar("BTCUSDT", "1m", 1_700_000_060_000, 100, 102.2, 101.7, 102, 10, closed=True)
+    trader.on_bar(warmup, now_ms=warmup.ts)
     trader.on_bar(bar, now_ms=bar.ts)
     app = _build_dashboard_app(tmp_path, tmp_db, cache, trader)
 

@@ -53,10 +53,17 @@ from core.live.trading_adapter import (
 )
 from core.monitor.market_health import summarize_market_health
 from core.monitor.paper_metrics import paper_metrics
+from core.risk import (
+    L2PositionRiskSizer,
+    L3PortfolioRiskValidator,
+    PortfolioRiskLimits,
+    PositionRiskLimits,
+)
 from dashboard.paper_trading import (
     DEFAULT_TOP30_USDT,
     UNIVERSE_NAME,
     DashboardPaperTrader,
+    DashboardRiskPipeline,
     default_dashboard_strategies,
     fetch_binance_recent_klines,
     fetch_binance_top_usdt_symbols,
@@ -69,10 +76,16 @@ _SYMBOLS = DEFAULT_TOP30_USDT
 _FUTURES_PRICE_URL = "https://fapi.binance.com/fapi/v1/ticker/price"
 _FUTURES_24H_URL = "https://fapi.binance.com/fapi/v1/ticker/24hr"
 _DATA_HEALTH_DEFAULT_WINDOW_MS = 10 * 60_000
-_INITIAL_USDT_BALANCE = 10_000.0
+_INITIAL_USDT_BALANCE = 1_000.0
 _PAPER_MARGIN_LEVERAGE = 25.0
-_PAPER_MAX_OPEN_NOTIONAL = 70_000.0
+_PAPER_MAX_OPEN_NOTIONAL = _INITIAL_USDT_BALANCE * 3.0
 _LOCAL_TZ = timezone(timedelta(hours=8))
+
+
+def _paper_strategy_notional_multipliers() -> dict[str, float]:
+    return {
+        "paper_mean_reversion": 1.0,
+    }
 
 
 # ─── 工兛函数 ──────────────────────────────────────────────────────────────────
@@ -198,6 +211,7 @@ class LiveDataFeeder:
         self._bar_counter = 0
         self._last_bar_ms = 0
         self._bar_stale_after_ms = 90_000
+        self._ws_connect_timeout_sec = 10.0
         self._rest_bar_seen_ts: dict[tuple[str, str], int] = {}
         self._strategy_timeframes = ("1m", "1h", "4h", "1d")
         self._running = False
@@ -205,6 +219,8 @@ class LiveDataFeeder:
         self._price_task: asyncio.Task | None = None
         self._watchdog_task: asyncio.Task | None = None
         self._rest_bar_task: asyncio.Task | None = None
+        self._ws_reconnect_task: asyncio.Task | None = None
+        self._warmup_task: asyncio.Task | None = None
         self._ticker_24h: dict[str, dict[str, float]] = {}
 
     async def _lazy_load_exchange(self) -> None:
@@ -227,10 +243,14 @@ class LiveDataFeeder:
         self._running = True
 
         # WS 订阅（不依赖 exchange adapter 预加载）
-        await self._refresh_universe()
+        await self._refresh_universe(timeframes=("1m",))
 
-        await self._connect_ws()
-        print(f"  [LiveFeed] WS 已连接，订阅: {', '.join(self._symbols)} 1m")
+        try:
+            await self._connect_ws()
+            print(f"  [LiveFeed] WS 已连接，订阅: {', '.join(self._symbols)} 1m")
+        except Exception as exc:
+            self._repo.log_run("dashboard_ws_connect", "fail", note=str(exc)[:200])
+            print(f"  [LiveFeed] WS 连接失败，已降级为 REST 轮询兜底: {exc}")
 
         # 后台加载 exchange（不录响启动）
         self._exchange_task = asyncio.create_task(self._lazy_load_exchange())
@@ -240,6 +260,10 @@ class LiveDataFeeder:
         self._price_task = asyncio.create_task(self._rest_price_loop())
         self._watchdog_task = asyncio.create_task(self._bar_watchdog_loop())
         self._rest_bar_task = asyncio.create_task(self._rest_bar_fallback_loop())
+        self._ws_reconnect_task = asyncio.create_task(self._ws_reconnect_loop())
+        self._warmup_task = asyncio.create_task(
+            self._backfill_recent_bars(self._symbols, publish_latest=True)
+        )
 
     def _build_ws(self) -> WsSubscriber:
         self._ws = WsSubscriber(self._cache, self._parquet_io, self._exchange)
@@ -254,7 +278,10 @@ class LiveDataFeeder:
         for proxy in self._proxy_candidates():
             ws = self._build_ws()
             try:
-                await ws.connect(proxy=proxy)
+                await asyncio.wait_for(
+                    ws.connect(proxy=proxy),
+                    timeout=self._ws_connect_timeout_sec,
+                )
             except Exception as exc:
                 last_error = exc
                 await ws.close()
@@ -307,6 +334,20 @@ class LiveDataFeeder:
         self._last_bar_ms = 0
         await self._backfill_recent_bars(self._symbols)
         await self._connect_ws()
+
+    async def _ws_reconnect_loop(self, interval_sec: float = 30.0) -> None:
+        while self._running:
+            await asyncio.sleep(interval_sec)
+            if not self._running:
+                return
+            if _feeder_ws_connected(self):
+                continue
+            try:
+                await self._connect_ws()
+            except Exception as exc:
+                self._repo.log_run("dashboard_ws_reconnect", "fail", note=str(exc)[:200])
+                continue
+            self._repo.log_run("dashboard_ws_reconnect", "ok")
 
     def _on_bar(self, bar) -> None:
         """收到收盘 K 线时触发引擎检查。"""
@@ -371,7 +412,8 @@ class LiveDataFeeder:
         import aiohttp
 
         captured_at_ms = int(time.time() * 1000)
-        params = {"symbols": json.dumps(self._symbols)}
+        symbols = _symbols_with_open_positions(self._repo, self._symbols)
+        params = {"symbols": json.dumps(symbols)}
         timeout = aiohttp.ClientTimeout(total=5)
 
         async def fetch_prices(proxy: str):
@@ -389,14 +431,15 @@ class LiveDataFeeder:
             self._cache,
             rows,
             captured_at_ms=captured_at_ms,
-            allowed_symbols=set(self._symbols),
+            allowed_symbols=set(symbols),
         )
         await self._refresh_24h_tickers()
 
     async def _refresh_24h_tickers(self) -> None:
         import aiohttp
 
-        params = {"symbols": json.dumps(self._symbols)}
+        symbols = _symbols_with_open_positions(self._repo, self._symbols)
+        params = {"symbols": json.dumps(symbols)}
         timeout = aiohttp.ClientTimeout(total=5)
 
         async def fetch_tickers(proxy: str):
@@ -412,7 +455,7 @@ class LiveDataFeeder:
         rows = await self._call_binance_with_proxy_fallback("binance_futures_24h", fetch_tickers)
         self._ticker_24h = _apply_ticker_24h_rows(rows)
 
-    async def _refresh_universe(self) -> None:
+    async def _refresh_universe(self, *, timeframes: tuple[str, ...] | None = None) -> None:
         try:
             symbols = await self._call_binance_with_proxy_fallback(
                 "binance_usdt_top30_universe",
@@ -427,7 +470,11 @@ class LiveDataFeeder:
         self._symbols = symbols
         if self._trader:
             self._trader.replace_symbols(symbols)
-        await self._backfill_recent_bars(symbols, publish_latest=True)
+        await self._backfill_timeframes(
+            symbols,
+            timeframes=timeframes or self._strategy_timeframes,
+            publish_latest=True,
+        )
 
     async def _backfill_recent_bars(
         self,
@@ -514,6 +561,10 @@ class LiveDataFeeder:
             self._watchdog_task.cancel()
         if self._rest_bar_task:
             self._rest_bar_task.cancel()
+        if self._ws_reconnect_task:
+            self._ws_reconnect_task.cancel()
+        if self._warmup_task:
+            self._warmup_task.cancel()
         if self._ws:
             await self._ws.close()
         if self._exchange:
@@ -610,39 +661,7 @@ def create_app(
 
     @app.get("/api/prices")
     def api_prices():
-        prices = cache.latest_prices_all()
-        price_meta = cache.latest_price_meta_all()
-        now_ms = int(time.time() * 1000)
-        result = {}
-        ticker_24h = getattr(feeder, "_ticker_24h", {})
-        for sym, price in prices.items():
-            bars = cache.get_bars(sym, "1h", n=24)
-            change_24h, high_24h, low_24h = 0.0, price, price
-            if bars:
-                prev = bars[0].c
-                if prev > 0:
-                    change_24h = round((price - prev) / prev * 100, 2)
-                high_24h = max(b.h for b in bars)
-                low_24h = min(b.l for b in bars)
-            if sym in ticker_24h:
-                stats = ticker_24h[sym]
-                change_24h = stats.get("change_24h", change_24h)
-                high_24h = stats.get("high_24h", high_24h)
-                low_24h = stats.get("low_24h", low_24h)
-            meta = price_meta.get(sym, {})
-            updated_at = meta.get("updated_at")
-            age_ms = max(0, now_ms - int(updated_at)) if updated_at is not None else None
-            result[sym] = {
-                "price": price,
-                "change_24h": change_24h,
-                "high_24h": high_24h,
-                "low_24h": low_24h,
-                "source_ts": meta.get("source_ts"),
-                "updated_at": updated_at,
-                "age_ms": age_ms,
-                "quote_volume": ticker_24h.get(sym, {}).get("quote_volume", 0.0),
-            }
-        return result
+        return _price_snapshot(cache, getattr(feeder, "_ticker_24h", {}))
 
     @app.get("/api/universe")
     def api_universe():
@@ -710,10 +729,13 @@ def create_app(
             "LEFT JOIN symbols s ON o.symbol_id = s.id "
             f"{where} ORDER BY f.ts DESC LIMIT ?", (*params, limit),
         ).fetchall()
+        pnl_by_fill_id = _fill_pnl_by_id(repo, strategies=app.state.active_strategy_ids)
         return [{"id": r["id"], "order_id": r["order_id"],
                  "symbol": r["sym"] or "?", "side": r["side"],
                  "strategy": r["strategy"], "price": r["price"],
                  "quantity": r["quantity"], "fee": r["fee"],
+                 "gross_pnl": pnl_by_fill_id.get(int(r["id"]), {}).get("gross_pnl", 0.0),
+                 "net_pnl": pnl_by_fill_id.get(int(r["id"]), {}).get("net_pnl", 0.0),
                  "fee_currency": r["fee_currency"],
                  "is_maker": r["is_maker"], "ts": r["ts"]}
                 for r in rows]
@@ -963,27 +985,32 @@ def create_app(
         elif action == "stop":
             await feeder.stop()
         elif action == "random_order":
-            handles = []
+            handles: list = []
+            message = "no_core_strategy_signal"
             if trader:
                 symbol = trader.symbols[0] if trader.symbols else "BTCUSDT"
                 price = cache.latest_price(symbol) or 100.0
                 now_ms = int(time.time() * 1000)
-                handles = trader.on_bar(
-                    Bar(
-                        symbol=symbol,
-                        timeframe="1m",
-                        ts=now_ms,
-                        o=price,
-                        h=price * 1.002,
-                        l=price * 0.998,
-                        c=price,
-                        v=1.0,
-                        closed=True,
-                    ),
-                    now_ms=now_ms,
-                )
+                # 1) 用每个核心策略支持的真实 timeframe 各触发一次评估
+                for tf in ("4h", "1h", "1m"):
+                    extra = trader.on_bar(
+                        Bar(
+                            symbol=symbol,
+                            timeframe=tf,
+                            ts=now_ms,
+                            o=price,
+                            h=price * 1.002,
+                            l=price * 0.998,
+                            c=price,
+                            v=1.0,
+                            closed=True,
+                        ),
+                        now_ms=now_ms,
+                    )
+                    handles.extend(extra)
+                if handles:
+                    message = "strategy_order_generated"
             orders_generated = len(handles)
-            message = "strategy_order_generated" if orders_generated else "no_core_strategy_signal"
         else:
             orders_generated = 0
             message = "unknown_action"
@@ -1005,7 +1032,8 @@ def create_app(
         await ws.accept()
         try:
             while True:
-                prices = cache.latest_prices_all()
+                latest_prices = cache.latest_prices_all()
+                price_rows = _price_snapshot(cache, getattr(feeder, "_ticker_24h", {}))
                 positions = _compute_positions(repo, cache, strategies=app.state.active_strategy_ids)
                 account = _account_snapshot(
                     repo,
@@ -1045,7 +1073,8 @@ def create_app(
                     "bars_received": feeder._bar_counter,
                     "last_bar_age_ms": _feeder_last_bar_age_ms(feeder),
                     "market_data_stale": _feeder_market_data_stale(feeder),
-                    "latest_prices": prices,
+                    "latest_prices": latest_prices,
+                    "prices": price_rows,
                     "open_positions_n": len(positions),
                     "positions": positions,
                     "recent_orders": [_order_row(r) for r in recent_orders],
@@ -1074,6 +1103,40 @@ def create_app(
 # ─── 辅助 ──────────────────────────────────────────────────────────────────────
 
 
+_RISK_TYPE_LABELS = {
+    "order_rejected": "订单拒绝",
+    "paper_signal_skipped": "纸面信号跳过",
+    "risk_rejected": "风控拒单",
+}
+_RISK_REASON_LABELS = {
+    "cooldown": "冷却期内跳过",
+    "gross_leverage": "组合杠杆过高",
+    "min_notional": "低于最小下单金额",
+    "symbol_order_cap": "单币种订单数限制",
+    "portfolio_notional_cap": "组合名义仓位限制",
+    "daily_trade_cap": "日内交易次数限制",
+    "no_stop_loss": "缺少止损",
+    "position_cap": "仓位上限",
+    "unknown_symbol": "未知交易对",
+}
+_RISK_SOURCE_LABELS = {
+    "L1": "订单风控",
+    "L2": "仓位风控",
+    "L3": "组合风控",
+    "dashboard_trader": "模拟交易调度",
+}
+_RISK_SEVERITY_LABELS = {
+    "info": "提示",
+    "warn": "警告",
+    "warning": "警告",
+    "medium": "警告",
+    "critical": "严重",
+    "high": "严重",
+    "danger": "严重",
+    "error": "严重",
+}
+
+
 def _order_row(r) -> dict:
     return {
         "id": r["id"], "client_order_id": r["client_order_id"],
@@ -1093,15 +1156,48 @@ def _risk_event_row(r) -> dict:
             payload = json.loads(payload)
         except json.JSONDecodeError:
             payload = {"raw": payload}
+    if not isinstance(payload, dict):
+        payload = {"raw": payload}
+    reason = _risk_payload_text(payload, "reason")
+    symbol = _risk_payload_text(payload, "symbol")
+    strategy = _risk_payload_text(payload, "strategy")
+    type_label = _risk_label(_RISK_TYPE_LABELS, r["type"])
+    reason_label = _risk_label(_RISK_REASON_LABELS, reason)
+    source_label = _risk_label(_RISK_SOURCE_LABELS, r["source"])
+    severity_label = _risk_label(_RISK_SEVERITY_LABELS, r["severity"])
+    detail = " / ".join(part for part in (reason_label, symbol, strategy) if part)
     return {
         "id": r["id"],
         "type": r["type"],
+        "action": r["type"],
+        "type_label": type_label,
         "severity": r["severity"],
+        "severity_label": severity_label,
         "source": r["source"],
+        "source_label": source_label,
         "related_id": r["related_id"],
         "payload": payload,
+        "reason": reason,
+        "reason_label": reason_label,
+        "symbol": symbol,
+        "strategy": strategy,
+        "detail": detail,
         "captured_at": r["captured_at"],
+        "ts": r["captured_at"],
     }
+
+
+def _risk_payload_text(payload: dict, key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _risk_label(labels: dict[str, str], value: object) -> str:
+    text = str(value or "").strip()
+    return labels.get(text, text)
 
 
 def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
@@ -1117,6 +1213,47 @@ def _risk_event_counts(repo: SqliteRepo) -> dict[str, int]:
         "raw_total": int(raw_total["n"] or 0),
         "critical": int(row["critical"] or 0),
     }
+
+
+def _price_snapshot(
+    cache: MemoryCache,
+    ticker_24h: dict[str, dict[str, float]] | None = None,
+    *,
+    now_ms: int | None = None,
+) -> dict[str, dict[str, float | int | None]]:
+    prices = cache.latest_prices_all()
+    price_meta = cache.latest_price_meta_all()
+    now = int(time.time() * 1000) if now_ms is None else now_ms
+    ticker = ticker_24h or {}
+    result: dict[str, dict[str, float | int | None]] = {}
+    for sym, price in prices.items():
+        bars = cache.get_bars(sym, "1h", n=24)
+        change_24h, high_24h, low_24h = 0.0, price, price
+        if bars:
+            prev = bars[0].c
+            if prev > 0:
+                change_24h = round((price - prev) / prev * 100, 2)
+            high_24h = max(b.h for b in bars)
+            low_24h = min(b.l for b in bars)
+        if sym in ticker:
+            stats = ticker[sym]
+            change_24h = stats.get("change_24h", change_24h)
+            high_24h = stats.get("high_24h", high_24h)
+            low_24h = stats.get("low_24h", low_24h)
+        meta = price_meta.get(sym, {})
+        updated_at = meta.get("updated_at")
+        age_ms = max(0, now - int(updated_at)) if updated_at is not None else None
+        result[sym] = {
+            "price": price,
+            "change_24h": change_24h,
+            "high_24h": high_24h,
+            "low_24h": low_24h,
+            "source_ts": meta.get("source_ts"),
+            "updated_at": updated_at,
+            "age_ms": age_ms,
+            "quote_volume": ticker.get(sym, {}).get("quote_volume", 0.0),
+        }
+    return result
 
 
 def _data_source_identity(repo: SqliteRepo, *, strategies: list[str] | None = None) -> dict[str, object]:
@@ -1424,6 +1561,77 @@ def _round_display_price(value: float, symbol: sqlite3.Row | None) -> float:
     return round(value, 2)
 
 
+def _symbols_with_open_positions(repo: SqliteRepo, symbols: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for symbol in symbols:
+        if symbol not in seen:
+            seen.add(symbol)
+            result.append(symbol)
+    for row in repo.list_open_positions():
+        symbol = repo.get_symbol_by_id(int(row["symbol_id"]))
+        if symbol is None:
+            continue
+        name = str(symbol["symbol"])
+        if name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
+def _fill_pnl_by_id(repo: SqliteRepo, *, strategies: list[str] | None = None) -> dict[int, dict[str, float]]:
+    clauses = []
+    params: list[object] = []
+    if strategies:
+        placeholders = ",".join("?" for _ in strategies)
+        clauses.append(f"o.strategy_version IN ({placeholders})")
+        params.extend(strategies)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = repo._conn.execute(
+        "SELECT f.id, f.price, f.quantity, f.fee, o.symbol_id, o.side, o.strategy_version "
+        "FROM fills f JOIN orders o ON o.id = f.order_id "
+        f"{where} ORDER BY f.ts ASC, f.id ASC",
+        params,
+    ).fetchall()
+    state: dict[tuple[int, str], dict[str, float | str]] = {}
+    pnl_by_id: dict[int, dict[str, float]] = {}
+    for row in rows:
+        key = (int(row["symbol_id"]), str(row["strategy_version"] or ""))
+        side = "long" if row["side"] == "buy" else "short"
+        qty = float(row["quantity"] or 0.0)
+        price = float(row["price"] or 0.0)
+        fee = float(row["fee"] or 0.0)
+        current = state.get(key)
+        gross_pnl = 0.0
+        if current is None or current["side"] == side or float(current["qty"] or 0.0) <= 0:
+            old_qty = float(current["qty"] or 0.0) if current else 0.0
+            old_avg = float(current["avg"] or 0.0) if current else 0.0
+            new_qty = old_qty + qty
+            avg = ((old_qty * old_avg) + (qty * price)) / new_qty if new_qty > 0 else price
+            state[key] = {"side": side, "qty": new_qty, "avg": avg}
+        else:
+            old_qty = float(current["qty"] or 0.0)
+            avg = float(current["avg"] or 0.0)
+            close_qty = min(qty, old_qty)
+            if current["side"] == "long":
+                gross_pnl = (price - avg) * close_qty
+            else:
+                gross_pnl = (avg - price) * close_qty
+            remaining = old_qty - close_qty
+            excess = qty - close_qty
+            if remaining > 1e-12:
+                state[key] = {"side": current["side"], "qty": remaining, "avg": avg}
+            elif excess > 1e-12:
+                state[key] = {"side": side, "qty": excess, "avg": price}
+            else:
+                state.pop(key, None)
+        pnl_by_id[int(row["id"])] = {
+            "gross_pnl": round(gross_pnl, 8),
+            "net_pnl": round(gross_pnl - fee, 8),
+        }
+    return pnl_by_id
+
+
 def _strategy_win_rates(repo: SqliteRepo) -> dict[str, float]:
     rows = repo._conn.execute(
         "SELECT strategy_version, COUNT(*) AS closed_count, "
@@ -1713,7 +1921,16 @@ def main() -> None:
         engine=engine,
         symbols=_SYMBOLS,
         strategies=dashboard_strategies,
+        strategy_notional_multipliers=_paper_strategy_notional_multipliers(),
         max_open_notional_usdt=_PAPER_MAX_OPEN_NOTIONAL,
+        risk_pipeline=DashboardRiskPipeline(
+            portfolio_risk=L3PortfolioRiskValidator(
+                PortfolioRiskLimits(equity=_INITIAL_USDT_BALANCE)
+            ),
+            position_risk=L2PositionRiskSizer(
+                PositionRiskLimits(equity=_INITIAL_USDT_BALANCE)
+            ),
+        ),
     )
 
     # 4. 创建 LiveFeed 并启动（后台任务在 uvicorn 事件循环中运行）
@@ -1739,7 +1956,9 @@ def main() -> None:
     print("=" * 60)
 
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8089, log_level="warning")
+    host = os.getenv("CQ_DASHBOARD_HOST", "127.0.0.1")
+    port = int(os.getenv("CQ_DASHBOARD_PORT", "8089"))
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":

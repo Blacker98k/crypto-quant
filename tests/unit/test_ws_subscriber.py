@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 
+import aiohttp
+
 from core.data.exchange.base import Bar
 from core.data.memory_cache import MemoryCache
-from core.data.ws_subscriber import WsSubscriber
+from core.data.ws_subscriber import WsSubscriber, _default_client_session
 
 
 class FakeParquetIO:
@@ -173,6 +175,14 @@ async def test_mini_ticker_updates_latest_price_without_mutating_bars() -> None:
     assert cache.latest_price_meta("BTCUSDT")["source_ts"] == 1700000001234
     assert cache.bar_count("BTCUSDT", "1m") == 0
     assert parquet.writes == []
+
+
+async def test_default_session_uses_threaded_dns_resolver() -> None:
+    session = _default_client_session()
+    try:
+        assert isinstance(session.connector._resolver, aiohttp.ThreadedResolver)
+    finally:
+        await session.close()
 
 
 def test_stream_url_uses_spot_or_futures_endpoint() -> None:
