@@ -1074,12 +1074,12 @@
             class="strategy-row"
             :class="{active: strategyFilter===sc.name}"
             @click="strategyFilter = strategyFilter===sc.name ? '' : sc.name"
-            :title="sc.name"
+            :title="strategyTitle(sc.name)"
           >
             <div class="flex items-center justify-between gap-2">
               <div style="min-width:0">
                 <div class="font-medium" style="font-size:13px">{{ strategyName(sc.name) }}</div>
-                <div class="text-faint text-xs" style="margin-top:1px">{{ strategySub(sc.name) || sc.name }}</div>
+                <div class="text-faint text-xs" style="margin-top:1px">{{ strategySubtitle(sc.name) }}</div>
               </div>
               <div class="text-mono" style="font-size:15px; font-weight:600" :class="signClass(sc.total_pnl)">
                 {{ sc.total_pnl>=0 ? '+' : '' }}${{ fmt(sc.total_pnl) }}
@@ -1263,11 +1263,11 @@
 
     <!-- T3.5 策略评估状态：下次评估倒计时 + 详情（复盘核心区） -->
     <section class="eval-row" v-if="evalSchedule.length">
-      <div v-for="ev in evalSchedule" :key="ev.name" class="eval-card" :title="ev.name">
+      <div v-for="ev in evalSchedule" :key="ev.name" class="eval-card" :title="strategyTitle(ev.name)">
         <div class="eval-head">
           <div style="min-width:0">
             <div class="eval-name">{{ strategyName(ev.name) }}</div>
-            <div class="eval-name-en">{{ strategySub(ev.name) || ev.name }}</div>
+            <div class="eval-name-en">{{ strategySubtitle(ev.name) }}</div>
           </div>
           <div>
             <div class="eval-countdown" :class="ev.countdownLevel === 'imminent' ? 'pos' : ''">
@@ -1885,6 +1885,12 @@ createApp({
     }
     const strategyName = (id) => STRATEGY_NAMES[id]?.label || id || '-'
     const strategySub  = (id) => STRATEGY_NAMES[id]?.sub || ''
+    const strategySubtitle = (id) => strategySub(id) || strategyName(id)
+    const strategyTitle = (id) => {
+      const name = strategyName(id)
+      const sub = strategySub(id)
+      return sub ? `${name} · ${sub}` : name
+    }
     const statusLabel = (value) => ({
       filled:'已成交', accepted:'挂单中', canceled:'已撤销', rejected:'已拒绝', new:'新订单',
     }[value] || value)
@@ -2316,7 +2322,7 @@ createApp({
       fmt, fmtPrice, fmtCompact, tsToTime, statusLabel, signClass, healthBadge, orderStatusChip,
       priceAgeMs, freshnessText, riskSevClass, riskSevChip,
       riskEventTitle, riskEventReason, riskEventReasonLabel, riskEventTypeLabel, riskEventPayload,
-      strategyName, strategySub,
+      strategyName, strategySub, strategySubtitle, strategyTitle,
       loadAll, loadPrices, loadOrders, loadPriceHistory, loadBalanceHistory, loadSmallLivePreflight,
       dryRunSmallLiveOrder, submitSmallLiveOrder, setBalanceRange,
       openModal, closeModal,

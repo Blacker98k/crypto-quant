@@ -213,6 +213,9 @@ def test_dashboard_static_page_labels_swing_breakout_strategy() -> None:
     assert "paper_swing_breakout" in html
     assert "波段突破" in html
     assert "15m" in html
+    assert ':title="strategyTitle(sc.name)"' in html
+    assert '{{ strategySubtitle(sc.name) }}' in html
+    assert '{{ strategySubtitle(ev.name) }}' in html
 
 
 # ─── 6. 实盘试运行通道（安全约束） ──────────────────────────────────
