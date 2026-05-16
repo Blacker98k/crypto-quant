@@ -84,11 +84,17 @@ _SWING_BREAKOUT_TARGET_RISK_MULTIPLIER = 3.0
 _SWING_BREAKOUT_SIGNAL_TTL_MS = 12 * 60 * 60_000
 _PAPER_TAKER_FEE_RATE = 0.0004
 _PAPER_MARKET_SLIPPAGE_PCT = 0.0001
-_MEAN_REVERSION_MIN_REVERSAL_EDGE_PCT = 0.003
-_MEAN_REVERSION_MIN_REVERSAL_EDGE_USDT = 0.05
+_MEAN_REVERSION_MIN_REVERSAL_EDGE_PCT = 0.004
+_MEAN_REVERSION_MIN_REVERSAL_EDGE_USDT = 0.10
 _MEAN_REVERSION_MIN_REVERSAL_FEE_MULTIPLE = 3.0
-_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_PCT = 0.0015
-_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_USDT = 0.15
+_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_PCT = 0.004
+_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_USDT = 2.50
+_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_FLOOR_USDT = 0.60
+_MEAN_REVERSION_MIN_TTL_NET_EDGE_PCT = 0.004
+_MEAN_REVERSION_MIN_TTL_NET_EDGE_USDT = 2.50
+_MEAN_REVERSION_MIN_TTL_NET_EDGE_FLOOR_USDT = 0.60
+_MEAN_REVERSION_MIN_NET_EDGE_SCALE_PCT = 0.02
+_MEAN_REVERSION_HARD_TTL_MULTIPLE = 4
 _MEAN_REVERSION_LEGACY_DUST_NOTIONAL_MULTIPLE = 0.75
 _MAINSTREAM_BASES = {
     "BTC",
@@ -884,7 +890,7 @@ class DashboardPaperTrader:
         if signal_row is None:
             return None
 
-        reason = self._exit_reason(bar, position, signal_row, now_ms)
+        reason = self._exit_reason(bar, strategy_name, position, signal_row, now_ms)
         if reason is None:
             return None
 
@@ -903,9 +909,10 @@ class DashboardPaperTrader:
         row = self._repo._conn.execute("SELECT * FROM signals WHERE id=?", (int(signal_id),)).fetchone()
         return dict(row) if row is not None else None
 
-    @staticmethod
     def _exit_reason(
+        self,
         bar: Bar,
+        strategy_name: str,
         position: dict[str, Any],
         signal_row: dict[str, Any],
         now_ms: int,
@@ -924,9 +931,32 @@ class DashboardPaperTrader:
             if target > 0 and bar.l <= target:
                 return "target"
         expires_at = int(signal_row["expires_at"] or 0)
-        if expires_at > 0 and now_ms >= expires_at:
+        if expires_at > 0 and now_ms >= expires_at and self._should_close_expired_position(
+            strategy_name,
+            bar,
+            position,
+            signal_row,
+            now_ms,
+        ):
             return "ttl"
         return None
+
+    def _should_close_expired_position(
+        self,
+        strategy_name: str,
+        bar: Bar,
+        position: dict[str, Any],
+        signal_row: dict[str, Any],
+        now_ms: int,
+    ) -> bool:
+        if not strategy_name.endswith("mean_reversion"):
+            return True
+        captured_at = int(signal_row["captured_at"] or position.get("opened_at") or now_ms)
+        expires_at = int(signal_row["expires_at"] or 0)
+        soft_ttl_ms = max(expires_at - captured_at, 1)
+        if now_ms - captured_at >= soft_ttl_ms * _MEAN_REVERSION_HARD_TTL_MULTIPLE:
+            return True
+        return not self._mean_reversion_ttl_exit_edge_too_small(position, bar.c)
 
     def _is_legacy_tiny_mean_reversion_position(
         self,
@@ -1107,9 +1137,44 @@ class DashboardPaperTrader:
         expected_net = gross_pnl - (entry_notional + exit_notional) * _PAPER_TAKER_FEE_RATE
         required_net = max(
             entry_notional * _MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_PCT,
-            _MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_USDT,
+            _scaled_mean_reversion_net_edge_floor(
+                entry_notional,
+                floor_usdt=_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_FLOOR_USDT,
+                target_usdt=_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_USDT,
+            ),
         )
         return expected_net < required_net
+
+    def _mean_reversion_ttl_exit_edge_too_small(
+        self,
+        position: dict[str, Any],
+        reference_price: float,
+    ) -> bool:
+        if reference_price <= 0:
+            return True
+        qty = abs(float(position["qty"] or 0.0))
+        entry_price = float(position["avg_entry_price"] or 0.0)
+        if qty <= 0 or entry_price <= 0:
+            return True
+        current_side = str(position["side"])
+        if current_side == "long":
+            exit_price = reference_price * (1.0 - _PAPER_MARKET_SLIPPAGE_PCT)
+            gross_pnl = (exit_price - entry_price) * qty
+        else:
+            exit_price = reference_price * (1.0 + _PAPER_MARKET_SLIPPAGE_PCT)
+            gross_pnl = (entry_price - exit_price) * qty
+        entry_notional = qty * entry_price
+        exit_notional = qty * exit_price
+        estimated_net = gross_pnl - (entry_notional + exit_notional) * _PAPER_TAKER_FEE_RATE
+        required_net = max(
+            entry_notional * _MEAN_REVERSION_MIN_TTL_NET_EDGE_PCT,
+            _scaled_mean_reversion_net_edge_floor(
+                entry_notional,
+                floor_usdt=_MEAN_REVERSION_MIN_TTL_NET_EDGE_FLOOR_USDT,
+                target_usdt=_MEAN_REVERSION_MIN_TTL_NET_EDGE_USDT,
+            ),
+        )
+        return estimated_net < required_net
 
     def _notional_for_strategy(self, strategy_name: str) -> float:
         multiplier = self._strategy_notional_multipliers.get(strategy_name, 1.0)
@@ -1136,6 +1201,18 @@ class DashboardPaperTrader:
         steps = math.ceil(raw_steps) if rounding == "up" else int(raw_steps)
         steps = max(steps, 1)
         return round(steps * lot_size, 8)
+
+
+def _scaled_mean_reversion_net_edge_floor(
+    entry_notional: float,
+    *,
+    floor_usdt: float,
+    target_usdt: float,
+) -> float:
+    if entry_notional <= 0:
+        return target_usdt
+    scaled = entry_notional * _MEAN_REVERSION_MIN_NET_EDGE_SCALE_PCT
+    return min(target_usdt, max(floor_usdt, scaled))
 
 
 def default_exploration_strategies(*, prefix: str = "explore") -> list[ExplorationStrategy]:
