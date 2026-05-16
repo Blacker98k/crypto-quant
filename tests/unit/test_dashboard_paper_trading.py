@@ -18,6 +18,7 @@ from dashboard.paper_trading import (
     DashboardPaperTrader,
     ExplorationStrategy,
     SwingBreakoutStrategy,
+    TrendMomentumStrategy,
     bars_from_binance_klines,
     default_dashboard_strategies,
     select_top_usdt_symbols,
@@ -1023,6 +1024,7 @@ def test_default_dashboard_strategies_use_paper_strategies_only(
     names = [strategy.name for strategy in default_dashboard_strategies(feed=feed, repo=sqlite_repo)]
 
     assert "paper_mean_reversion" in names
+    assert "paper_trend_momentum" in names
     assert "paper_swing_breakout" in names
     assert "S1_btc_eth_trend" not in names
     assert "S2_altcoin_reversal" not in names
@@ -1032,6 +1034,36 @@ def test_default_dashboard_strategies_use_paper_strategies_only(
     assert "explore_mean_reversion" not in names
     assert "explore_volatility" not in names
     assert "S3_pair_trading" not in names
+
+
+def test_trend_momentum_strategy_trades_on_confirmed_5m_breakout() -> None:
+    strategy = TrendMomentumStrategy(min_bars=12)
+    base_ts = 1_700_000_000_000
+    warmup = [
+        Bar("BTCUSDT", "5m", base_ts + i * 300_000, 100, 101 + i * 0.03, 99.5, 100.2 + i * 0.02, 100 + i, closed=True)
+        for i in range(12)
+    ]
+    weak_breakout = [
+        *warmup,
+        Bar("BTCUSDT", "5m", base_ts + 12 * 300_000, 100.4, 101.25, 100.1, 101.22, 120, closed=True),
+    ]
+    confirmed_breakout = [
+        *warmup,
+        Bar("BTCUSDT", "5m", base_ts + 12 * 300_000, 100.4, 102.2, 100.1, 102.1, 150, closed=True),
+    ]
+
+    assert not strategy.supports("BTCUSDT", "1m")
+    assert strategy.supports("BTCUSDT", "5m")
+    assert strategy.evaluate("BTCUSDT", weak_breakout) is None
+
+    signal = strategy.evaluate("BTCUSDT", confirmed_breakout)
+
+    assert signal is not None
+    assert signal.side == "long"
+    assert signal.target_price is not None
+    assert signal.stop_price is not None
+    assert (signal.target_price - 102.1) / (102.1 - signal.stop_price) >= 2.4
+    assert signal.expires_in_ms >= 2 * 60 * 60 * 1000
 
 
 def test_swing_breakout_strategy_trades_only_on_confirmed_15m_breakout() -> None:

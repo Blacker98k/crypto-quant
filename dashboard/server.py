@@ -86,6 +86,7 @@ _LOCAL_TZ = timezone(timedelta(hours=8))
 def _paper_strategy_notional_multipliers() -> dict[str, float]:
     return {
         "paper_mean_reversion": 1.0,
+        "paper_trend_momentum": 1.0,
         "paper_swing_breakout": 1.0,
     }
 
@@ -215,7 +216,7 @@ class LiveDataFeeder:
         self._bar_stale_after_ms = 90_000
         self._ws_connect_timeout_sec = 10.0
         self._rest_bar_seen_ts: dict[tuple[str, str], int] = {}
-        self._strategy_timeframes = ("1m", "15m", "1h", "4h", "1d")
+        self._strategy_timeframes = ("1m", "5m", "15m", "1h", "4h", "1d")
         self._running = False
         self._task: asyncio.Task | None = None
         self._price_task: asyncio.Task | None = None

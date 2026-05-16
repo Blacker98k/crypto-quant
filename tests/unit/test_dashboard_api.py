@@ -103,7 +103,11 @@ reconciliation_required: true
 def test_paper_strategy_notional_multipliers_keep_profitable_strategy_only() -> None:
     multipliers = dashboard_server._paper_strategy_notional_multipliers()
 
-    assert multipliers == {"paper_mean_reversion": 1.0, "paper_swing_breakout": 1.0}
+    assert multipliers == {
+        "paper_mean_reversion": 1.0,
+        "paper_trend_momentum": 1.0,
+        "paper_swing_breakout": 1.0,
+    }
 
 
 def test_dashboard_small_live_preflight_exposes_safe_readiness_without_secrets(
@@ -1152,7 +1156,7 @@ async def test_live_feeder_falls_back_to_direct_rest_when_proxy_fails(
     await feeder._refresh_universe()
 
     assert top_symbol_proxies == ["http://127.0.0.1:57777", ""]
-    assert kline_proxies == ["", "", "", "", ""]
+    assert kline_proxies == ["", "", "", "", "", ""]
     assert feeder._proxy == ""
     assert feeder._symbols == ["BTCUSDT"]
 

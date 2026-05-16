@@ -1746,6 +1746,7 @@ createApp({
     const STRATEGY_TF_MIN = {
       'S3_funding_arb': 60,           // 1h（如有）
       'paper_mean_reversion': 1,
+      'paper_trend_momentum': 5,
       'paper_swing_breakout': 15,
     }
     // 当前秒级时间戳（每秒滴答，驱动倒计时）
@@ -1878,6 +1879,7 @@ createApp({
     const STRATEGY_NAMES = {
       'S3_funding_arb':         { label:'S3 · 资金费套利',  sub:'多空对冲' },
       'paper_mean_reversion':   { label:'纸面 · 均值回归', sub:'1m 精选 · 2.5U门槛' },
+      'paper_trend_momentum':   { label:'纸面 · 趋势动量', sub:'5m 进攻 · 2.5R目标' },
       'paper_swing_breakout':   { label:'纸面 · 波段突破', sub:'15m 低频 · 3R 目标' },
       'explore_momentum':       { label:'探索 · 动量',     sub:'高频测试' },
       'explore_mean_reversion': { label:'探索 · 反转',     sub:'高频测试' },

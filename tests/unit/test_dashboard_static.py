@@ -210,7 +210,9 @@ def test_dashboard_static_page_shows_strategy_pnl_breakdown() -> None:
 
 def test_dashboard_static_page_labels_swing_breakout_strategy() -> None:
     html = _html()
+    assert "paper_trend_momentum" in html
     assert "paper_swing_breakout" in html
+    assert "5m" in html
     assert "波段突破" in html
     assert "15m" in html
     assert ':title="strategyTitle(sc.name)"' in html

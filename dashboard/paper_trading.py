@@ -82,6 +82,13 @@ _SWING_BREAKOUT_STOP_RANGE_MULTIPLE = 1.1
 _SWING_BREAKOUT_MIN_STOP_PCT = 0.008
 _SWING_BREAKOUT_TARGET_RISK_MULTIPLIER = 3.0
 _SWING_BREAKOUT_SIGNAL_TTL_MS = 12 * 60 * 60_000
+_TREND_MOMENTUM_MIN_BREAK_PCT = 0.002
+_TREND_MOMENTUM_VOLUME_MULTIPLE = 1.05
+_TREND_MOMENTUM_MIN_RANGE_PCT = 0.0025
+_TREND_MOMENTUM_STOP_RANGE_MULTIPLE = 1.0
+_TREND_MOMENTUM_MIN_STOP_PCT = 0.006
+_TREND_MOMENTUM_TARGET_RISK_MULTIPLIER = 2.5
+_TREND_MOMENTUM_SIGNAL_TTL_MS = 4 * 60 * 60_000
 _PAPER_TAKER_FEE_RATE = 0.0004
 _PAPER_MARKET_SLIPPAGE_PCT = 0.0001
 _MEAN_REVERSION_MIN_REVERSAL_EDGE_PCT = 0.004
@@ -499,6 +506,68 @@ class ExplorationStrategy:
             suggested_size=0.0,
             rationale=rationale,
             expires_in_ms=_EXPLORATION_SIGNAL_TTL_MS,
+        )
+
+
+@dataclass(slots=True)
+class TrendMomentumStrategy:
+    """Medium-frequency paper strategy for larger directional 5m moves."""
+
+    name: str = "paper_trend_momentum"
+    min_bars: int = 12
+    confidence: float = 0.62
+
+    def supports(self, symbol: str, timeframe: str) -> bool:
+        return timeframe == "5m"
+
+    def evaluate(self, symbol: str, bars: list[Bar]) -> Signal | None:
+        if len(bars) < self.min_bars + 1:
+            return None
+        last = bars[-1]
+        if last.timeframe != "5m" or last.c <= 0:
+            return None
+        window = bars[-self.min_bars - 1 : -1]
+        previous_high = max(bar.h for bar in window)
+        previous_low = min(bar.l for bar in window)
+        avg_volume = sum(max(bar.v, 0.0) for bar in window) / len(window)
+        avg_range = sum(max(bar.h - bar.l, 0.0) for bar in window) / len(window)
+        range_pct = (last.h - last.l) / last.c if last.h > last.l else 0.0
+        volume_ok = avg_volume <= 0 or last.v >= avg_volume * _TREND_MOMENTUM_VOLUME_MULTIPLE
+        range_ok = range_pct >= _TREND_MOMENTUM_MIN_RANGE_PCT
+        long_break = last.c >= previous_high * (1.0 + _TREND_MOMENTUM_MIN_BREAK_PCT)
+        short_break = last.c <= previous_low * (1.0 - _TREND_MOMENTUM_MIN_BREAK_PCT)
+        if not (volume_ok and range_ok and (long_break or short_break)):
+            return None
+
+        side = "long" if long_break else "short"
+        stop_distance = max(
+            avg_range * _TREND_MOMENTUM_STOP_RANGE_MULTIPLE,
+            last.c * _TREND_MOMENTUM_MIN_STOP_PCT,
+        )
+        if side == "long":
+            stop_price = last.c - stop_distance
+            target_price = last.c + stop_distance * _TREND_MOMENTUM_TARGET_RISK_MULTIPLIER
+        else:
+            stop_price = last.c + stop_distance
+            target_price = last.c - stop_distance * _TREND_MOMENTUM_TARGET_RISK_MULTIPLIER
+        return Signal(
+            side=side,
+            symbol=symbol,
+            entry_price=None,
+            stop_price=round(stop_price, 8),
+            target_price=round(target_price, 8),
+            confidence=self.confidence,
+            suggested_size=0.0,
+            rationale={
+                "type": "trend_momentum",
+                "timeframe": "5m",
+                "lookback_bars": self.min_bars,
+                "previous_high": previous_high,
+                "previous_low": previous_low,
+                "range_pct": range_pct,
+                "volume_multiple": last.v / avg_volume if avg_volume > 0 else None,
+            },
+            expires_in_ms=_TREND_MOMENTUM_SIGNAL_TTL_MS,
         )
 
 
@@ -1231,6 +1300,7 @@ def default_dashboard_strategies(
 ) -> list[_StrategyLike]:
     return [
         ExplorationStrategy("paper_mean_reversion", min_bars=3),
+        TrendMomentumStrategy(),
         SwingBreakoutStrategy(),
     ]
 
@@ -1310,6 +1380,7 @@ __all__ = [
     "DashboardRiskPipeline",
     "ExplorationStrategy",
     "SwingBreakoutStrategy",
+    "TrendMomentumStrategy",
     "bars_from_binance_klines",
     "default_dashboard_strategies",
     "default_exploration_strategies",
