@@ -582,6 +582,145 @@ def test_dashboard_paper_trader_allows_mean_reversion_reversal_with_fee_edge(
     assert order_count["n"] == 2
 
 
+def test_dashboard_paper_trader_skips_fee_dominated_mean_reversion_entry(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    strategy = _ScriptedDashboardStrategy(
+        "paper_mean_reversion",
+        [
+            Signal(
+                side="long",
+                symbol="BTCUSDT",
+                stop_price=99.0,
+                target_price=100.4,
+                confidence=0.7,
+                expires_in_ms=8 * 60_000,
+            ),
+        ],
+    )
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[strategy],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    tiny_edge = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True)
+
+    handles = trader.on_bar(tiny_edge, now_ms=tiny_edge.ts)
+    matrix = trader.strategy_matrix()
+
+    order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
+    assert handles == []
+    assert order_count["n"] == 0
+    assert matrix["cells"][0]["throttle_reason"] == "insufficient_expected_edge"
+
+
+def test_dashboard_paper_trader_closes_legacy_tiny_mean_reversion_position(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    symbol = sqlite_repo.get_symbol("BTCUSDT")
+    assert symbol is not None
+    sqlite_repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "paper_mean_reversion",
+            "strategy_version": "paper_mean_reversion",
+            "opening_signal_id": None,
+            "side": "long",
+            "qty": 0.2,
+            "avg_entry_price": 100.0,
+            "current_price": 100.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": "legacy-tiny",
+            "opened_at": 1_700_000_000_000,
+            "closed_at": None,
+        }
+    )
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    strategy = _ScriptedDashboardStrategy("paper_mean_reversion", [None])
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[strategy],
+        notional_usdt=150.0,
+        cooldown_ms=0,
+    )
+    bar = Bar("BTCUSDT", "1m", 1_700_000_061_000, 100, 100.1, 99.9, 100, 10, closed=True)
+
+    handles = trader.on_bar(bar, now_ms=bar.ts)
+
+    order_rows = sqlite_repo._conn.execute("SELECT purpose FROM orders ORDER BY id").fetchall()
+    open_positions = sqlite_repo._conn.execute("SELECT * FROM positions WHERE closed_at IS NULL").fetchall()
+    assert [handle.status for handle in handles] == ["filled"]
+    assert [row["purpose"] for row in order_rows] == ["exit"]
+    assert open_positions == []
+
+
+def test_dashboard_paper_trader_closes_legacy_tiny_position_outside_active_symbols(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "GALAUSDT")
+    symbol = sqlite_repo.get_symbol("GALAUSDT")
+    assert symbol is not None
+    sqlite_repo.insert_position(
+        {
+            "symbol_id": symbol["id"],
+            "strategy": "paper_mean_reversion",
+            "strategy_version": "paper_mean_reversion",
+            "opening_signal_id": None,
+            "side": "short",
+            "qty": 4901.96,
+            "avg_entry_price": 0.0041,
+            "current_price": 0.0034,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "leverage": 1.0,
+            "margin": None,
+            "liq_price": None,
+            "stop_order_id": None,
+            "trade_group_id": "legacy-outside-universe",
+            "opened_at": 1_700_000_000_000,
+            "closed_at": None,
+        }
+    )
+    cache = MemoryCache(max_bars=20)
+    cache.push_bar(Bar("GALAUSDT", "1m", 1_700_000_060_000, 0.0034, 0.0035, 0.0033, 0.0034, 10, closed=True))
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    strategy = _ScriptedDashboardStrategy("paper_mean_reversion", [None])
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[strategy],
+        notional_usdt=150.0,
+        cooldown_ms=0,
+    )
+
+    handles = trader.close_legacy_tiny_positions(now_ms=1_700_000_061_000)
+
+    order_rows = sqlite_repo._conn.execute("SELECT purpose FROM orders ORDER BY id").fetchall()
+    open_positions = sqlite_repo._conn.execute("SELECT * FROM positions WHERE closed_at IS NULL").fetchall()
+    assert [handle.status for handle in handles] == ["filled"]
+    assert [row["purpose"] for row in order_rows] == ["exit"]
+    assert open_positions == []
+
+
 def test_dashboard_paper_trader_scales_notional_by_strategy(
     sqlite_repo: SqliteRepo,
 ) -> None:

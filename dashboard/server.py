@@ -78,6 +78,7 @@ _FUTURES_24H_URL = "https://fapi.binance.com/fapi/v1/ticker/24hr"
 _DATA_HEALTH_DEFAULT_WINDOW_MS = 10 * 60_000
 _INITIAL_USDT_BALANCE = 1_000.0
 _PAPER_MARGIN_LEVERAGE = 25.0
+_PAPER_BASE_ORDER_NOTIONAL = 150.0
 _PAPER_MAX_OPEN_NOTIONAL = _INITIAL_USDT_BALANCE * 3.0
 _LOCAL_TZ = timezone(timedelta(hours=8))
 
@@ -433,6 +434,8 @@ class LiveDataFeeder:
             captured_at_ms=captured_at_ms,
             allowed_symbols=set(symbols),
         )
+        if self._trader is not None:
+            self._trader.close_legacy_tiny_positions(now_ms=captured_at_ms)
         await self._refresh_24h_tickers()
 
     async def _refresh_24h_tickers(self) -> None:
@@ -1921,6 +1924,7 @@ def main() -> None:
         engine=engine,
         symbols=_SYMBOLS,
         strategies=dashboard_strategies,
+        notional_usdt=_PAPER_BASE_ORDER_NOTIONAL,
         strategy_notional_multipliers=_paper_strategy_notional_multipliers(),
         max_open_notional_usdt=_PAPER_MAX_OPEN_NOTIONAL,
         risk_pipeline=DashboardRiskPipeline(

@@ -81,6 +81,9 @@ _PAPER_MARKET_SLIPPAGE_PCT = 0.0001
 _MEAN_REVERSION_MIN_REVERSAL_EDGE_PCT = 0.003
 _MEAN_REVERSION_MIN_REVERSAL_EDGE_USDT = 0.05
 _MEAN_REVERSION_MIN_REVERSAL_FEE_MULTIPLE = 3.0
+_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_PCT = 0.0015
+_MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_USDT = 0.15
+_MEAN_REVERSION_LEGACY_DUST_NOTIONAL_MULTIPLE = 0.75
 _MAINSTREAM_BASES = {
     "BTC",
     "ETH",
@@ -628,6 +631,31 @@ class DashboardPaperTrader:
                 )
         return {"symbols": self._symbols, "strategies": self.strategies, "cells": cells}
 
+    def close_legacy_tiny_positions(self, now_ms: int | None = None) -> list[OrderHandle]:
+        now = now_ms or int(time.time() * 1000)
+        handles: list[OrderHandle] = []
+        for position in self._open_positions_for_active_strategies():
+            strategy_name = str(position["strategy_version"] or "")
+            if now - int(position["opened_at"] or 0) <= self._min_exit_age_ms:
+                continue
+            symbol_row = self._repo.get_symbol_by_id(int(position["symbol_id"]))
+            if symbol_row is None:
+                continue
+            symbol = str(symbol_row["symbol"])
+            price = self._cache.latest_price(symbol) or float(position["current_price"] or position["avg_entry_price"] or 0.0)
+            if not self._is_legacy_tiny_mean_reversion_position(strategy_name, position, price):
+                continue
+            handles.append(
+                self._engine.close_position(
+                    symbol=symbol,
+                    strategy=strategy_name,
+                    strategy_version=strategy_name,
+                    client_order_id=f"{strategy_name}-{symbol}-exit-legacy_dust-{now}-{uuid.uuid4().hex[:6]}",
+                    now_ms=now,
+                )
+            )
+        return handles
+
     def _place_signal(self, strategy_name: str, signal: Signal, now_ms: int) -> OrderHandle | None:
         key = (signal.symbol, strategy_name)
         if now_ms - self._last_trade_ms.get(key, 0) < self._cooldown_ms:
@@ -700,6 +728,19 @@ class DashboardPaperTrader:
             evaluation["throttled"] = True
             evaluation["throttle_reason"] = "insufficient_edge"
             return None
+        if self._mean_reversion_expected_edge_too_small(strategy_name, signal, price, quantity):
+            evaluation = self._evaluations.setdefault(
+                key,
+                {
+                    "symbol": signal.symbol,
+                    "strategy_id": strategy_name,
+                    "ready": True,
+                    "bars": 0,
+                },
+            )
+            evaluation["throttled"] = True
+            evaluation["throttle_reason"] = "insufficient_expected_edge"
+            return None
         signal_id = self._insert_signal(strategy_name, signal, now_ms)
         side = "buy" if signal.side == "long" else "sell"
         intent = OrderIntent(
@@ -763,6 +804,14 @@ class DashboardPaperTrader:
             return None
         if now_ms - int(position["opened_at"] or 0) <= self._min_exit_age_ms:
             return None
+        if self._is_legacy_tiny_mean_reversion_position(strategy_name, position, bar.c):
+            return self._engine.close_position(
+                symbol=bar.symbol,
+                strategy=strategy_name,
+                strategy_version=strategy_name,
+                client_order_id=f"{strategy_name}-{bar.symbol}-exit-legacy_dust-{now_ms}-{uuid.uuid4().hex[:6]}",
+                now_ms=now_ms,
+            )
         signal_row = self._opening_signal_for_position(position)
         if signal_row is None:
             return None
@@ -810,6 +859,18 @@ class DashboardPaperTrader:
         if expires_at > 0 and now_ms >= expires_at:
             return "ttl"
         return None
+
+    def _is_legacy_tiny_mean_reversion_position(
+        self,
+        strategy_name: str,
+        position: dict[str, Any],
+        reference_price: float,
+    ) -> bool:
+        if not strategy_name.endswith("mean_reversion") or reference_price <= 0:
+            return False
+        notional = abs(float(position["qty"] or 0.0) * reference_price)
+        threshold = self._notional_for_strategy(strategy_name) * _MEAN_REVERSION_LEGACY_DUST_NOTIONAL_MULTIPLE
+        return notional < threshold
 
     def _insert_signal(self, strategy_name: str, signal: Signal, now_ms: int) -> int:
         symbol_row = self._repo.get_symbol(signal.symbol)
@@ -951,6 +1012,36 @@ class DashboardPaperTrader:
             _MEAN_REVERSION_MIN_REVERSAL_EDGE_USDT,
         )
         return gross_pnl < required_gross
+
+    def _mean_reversion_expected_edge_too_small(
+        self,
+        strategy_name: str,
+        signal: Signal,
+        reference_price: float,
+        order_quantity: float,
+    ) -> bool:
+        if not strategy_name.endswith("mean_reversion"):
+            return False
+        if signal.target_price is None or signal.target_price <= 0:
+            return False
+        if reference_price <= 0 or order_quantity <= 0:
+            return True
+        if signal.side == "long":
+            entry_price = reference_price * (1.0 + _PAPER_MARKET_SLIPPAGE_PCT)
+            exit_price = float(signal.target_price) * (1.0 - _PAPER_MARKET_SLIPPAGE_PCT)
+            gross_pnl = (exit_price - entry_price) * order_quantity
+        else:
+            entry_price = reference_price * (1.0 - _PAPER_MARKET_SLIPPAGE_PCT)
+            exit_price = float(signal.target_price) * (1.0 + _PAPER_MARKET_SLIPPAGE_PCT)
+            gross_pnl = (entry_price - exit_price) * order_quantity
+        entry_notional = order_quantity * entry_price
+        exit_notional = order_quantity * exit_price
+        expected_net = gross_pnl - (entry_notional + exit_notional) * _PAPER_TAKER_FEE_RATE
+        required_net = max(
+            entry_notional * _MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_PCT,
+            _MEAN_REVERSION_MIN_EXPECTED_NET_EDGE_USDT,
+        )
+        return expected_net < required_net
 
     def _notional_for_strategy(self, strategy_name: str) -> float:
         multiplier = self._strategy_notional_multipliers.get(strategy_name, 1.0)
