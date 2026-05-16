@@ -76,6 +76,11 @@ _EXPLORATION_VOLATILITY_MIN_RANGE_PCT = 0.0035
 _EXPLORATION_VOLATILITY_CLOSE_EXTREME = 0.80
 _EXPLORATION_TARGET_RISK_MULTIPLIER = 2.2
 _EXPLORATION_SIGNAL_TTL_MS = 8 * 60_000
+_PAPER_TAKER_FEE_RATE = 0.0004
+_PAPER_MARKET_SLIPPAGE_PCT = 0.0001
+_MEAN_REVERSION_MIN_REVERSAL_EDGE_PCT = 0.003
+_MEAN_REVERSION_MIN_REVERSAL_EDGE_USDT = 0.05
+_MEAN_REVERSION_MIN_REVERSAL_FEE_MULTIPLE = 3.0
 _MAINSTREAM_BASES = {
     "BTC",
     "ETH",
@@ -682,6 +687,19 @@ class DashboardPaperTrader:
         if quantity * price < min_notional and raw_quantity * price >= min_notional:
             quantity = self._round_qty(signal.symbol, min_notional / price, rounding="up")
         signal.suggested_size = quantity
+        if self._mean_reversion_reversal_edge_too_small(strategy_name, signal, price, quantity):
+            evaluation = self._evaluations.setdefault(
+                key,
+                {
+                    "symbol": signal.symbol,
+                    "strategy_id": strategy_name,
+                    "ready": True,
+                    "bars": 0,
+                },
+            )
+            evaluation["throttled"] = True
+            evaluation["throttle_reason"] = "insufficient_edge"
+            return None
         signal_id = self._insert_signal(strategy_name, signal, now_ms)
         side = "buy" if signal.side == "long" else "sell"
         intent = OrderIntent(
@@ -889,6 +907,50 @@ class DashboardPaperTrader:
             return True
         desired_side = "long" if signal.side == "long" else "short"
         return str(current["side"]) == desired_side
+
+    def _mean_reversion_reversal_edge_too_small(
+        self,
+        strategy_name: str,
+        signal: Signal,
+        reference_price: float,
+        order_quantity: float,
+    ) -> bool:
+        if not strategy_name.endswith("mean_reversion"):
+            return False
+        symbol_row = self._repo.get_symbol(signal.symbol)
+        if symbol_row is None:
+            return False
+        position = self._repo.get_open_position(int(symbol_row["id"]), strategy_name)
+        if position is None:
+            return False
+        desired_side = "long" if signal.side == "long" else "short"
+        current_side = str(position["side"])
+        if current_side == desired_side:
+            return False
+        close_qty = min(abs(float(position["qty"] or 0.0)), abs(order_quantity))
+        if close_qty <= 0 or reference_price <= 0:
+            return True
+        entry_price = float(position["avg_entry_price"] or 0.0)
+        if entry_price <= 0:
+            return True
+        exit_price = (
+            reference_price * (1.0 - _PAPER_MARKET_SLIPPAGE_PCT)
+            if current_side == "long"
+            else reference_price * (1.0 + _PAPER_MARKET_SLIPPAGE_PCT)
+        )
+        gross_pnl = (
+            (exit_price - entry_price) * close_qty
+            if current_side == "long"
+            else (entry_price - exit_price) * close_qty
+        )
+        close_notional = close_qty * exit_price
+        exit_fee = close_notional * _PAPER_TAKER_FEE_RATE
+        required_gross = max(
+            close_notional * _MEAN_REVERSION_MIN_REVERSAL_EDGE_PCT,
+            exit_fee * _MEAN_REVERSION_MIN_REVERSAL_FEE_MULTIPLE,
+            _MEAN_REVERSION_MIN_REVERSAL_EDGE_USDT,
+        )
+        return gross_pnl < required_gross
 
     def _notional_for_strategy(self, strategy_name: str) -> float:
         multiplier = self._strategy_notional_multipliers.get(strategy_name, 1.0)

@@ -75,6 +75,21 @@ class _SignalWithDailyDependencyStrategy(_SignalOnEveryBarStrategy):
         return DataRequirement(symbols=["BTCUSDT"], timeframes=["4h", "1d"], history_lookback_bars=2)
 
 
+class _ScriptedDashboardStrategy:
+    def __init__(self, name: str, signals: list[Signal | None]) -> None:
+        self.name = name
+        self.min_bars = 1
+        self._signals = list(signals)
+
+    def supports(self, symbol: str, timeframe: str) -> bool:
+        return timeframe == "1m"
+
+    def evaluate(self, symbol: str, bars: list[Bar]) -> Signal | None:
+        if not self._signals:
+            return None
+        return self._signals.pop(0)
+
+
 def _seed_symbol(repo: SqliteRepo, symbol: str) -> None:
     _seed_symbol_with_limits(repo, symbol=symbol)
 
@@ -466,6 +481,105 @@ def test_dashboard_paper_trader_closes_position_when_signal_expires(
     assert [handle.status for handle in handles] == ["filled"]
     assert [row["purpose"] for row in order_rows] == ["entry", "exit"]
     assert open_positions == []
+
+
+def test_dashboard_paper_trader_skips_fee_dominated_mean_reversion_reversal(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    strategy = _ScriptedDashboardStrategy(
+        "paper_mean_reversion",
+        [
+            Signal(
+                side="long",
+                symbol="BTCUSDT",
+                stop_price=99.0,
+                target_price=None,
+                confidence=0.7,
+                expires_in_ms=8 * 60_000,
+            ),
+            Signal(
+                side="short",
+                symbol="BTCUSDT",
+                stop_price=101.0,
+                target_price=None,
+                confidence=0.7,
+                expires_in_ms=8 * 60_000,
+            ),
+        ],
+    )
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[strategy],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    entry = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True)
+    tiny_reversal = Bar("BTCUSDT", "1m", 1_700_000_061_000, 100, 100.2, 99.9, 100.01, 10, closed=True)
+
+    first_handles = trader.on_bar(entry, now_ms=entry.ts)
+    second_handles = trader.on_bar(tiny_reversal, now_ms=tiny_reversal.ts)
+    matrix = trader.strategy_matrix()
+
+    order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
+    open_positions = sqlite_repo._conn.execute("SELECT * FROM positions WHERE closed_at IS NULL").fetchall()
+    assert [handle.status for handle in first_handles] == ["filled"]
+    assert second_handles == []
+    assert order_count["n"] == 1
+    assert len(open_positions) == 1
+    assert matrix["cells"][0]["throttle_reason"] == "insufficient_edge"
+
+
+def test_dashboard_paper_trader_allows_mean_reversion_reversal_with_fee_edge(
+    sqlite_repo: SqliteRepo,
+) -> None:
+    _seed_symbol(sqlite_repo, "BTCUSDT")
+    cache = MemoryCache(max_bars=20)
+    engine = PaperMatchingEngine(sqlite_repo, get_price=lambda symbol: cache.latest_price(symbol))
+    strategy = _ScriptedDashboardStrategy(
+        "paper_mean_reversion",
+        [
+            Signal(
+                side="long",
+                symbol="BTCUSDT",
+                stop_price=99.0,
+                target_price=None,
+                confidence=0.7,
+                expires_in_ms=8 * 60_000,
+            ),
+            Signal(
+                side="short",
+                symbol="BTCUSDT",
+                stop_price=102.0,
+                target_price=None,
+                confidence=0.7,
+                expires_in_ms=8 * 60_000,
+            ),
+        ],
+    )
+    trader = DashboardPaperTrader(
+        repo=sqlite_repo,
+        cache=cache,
+        engine=engine,
+        symbols=["BTCUSDT"],
+        strategies=[strategy],
+        notional_usdt=25.0,
+        cooldown_ms=0,
+    )
+    entry = Bar("BTCUSDT", "1m", 1_700_000_000_000, 100, 100.1, 99.9, 100, 10, closed=True)
+    strong_reversal = Bar("BTCUSDT", "1m", 1_700_000_061_000, 100, 101.2, 99.9, 101.0, 10, closed=True)
+
+    trader.on_bar(entry, now_ms=entry.ts)
+    handles = trader.on_bar(strong_reversal, now_ms=strong_reversal.ts)
+
+    order_count = sqlite_repo._conn.execute("SELECT COUNT(*) AS n FROM orders").fetchone()
+    assert [handle.status for handle in handles] == ["filled"]
+    assert order_count["n"] == 2
 
 
 def test_dashboard_paper_trader_scales_notional_by_strategy(
