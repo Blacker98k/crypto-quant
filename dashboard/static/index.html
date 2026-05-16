@@ -1744,9 +1744,9 @@ createApp({
 
     // 评估周期：策略 id → 周期分钟数（要和后端 trigger_timeframes 一致）
     const STRATEGY_TF_MIN = {
-      'S1_btc_eth_trend': 240,        // 4h
-      'S2_altcoin_reversal': 60,      // 1h
       'S3_funding_arb': 60,           // 1h（如有）
+      'paper_mean_reversion': 1,
+      'paper_swing_breakout': 15,
     }
     // 当前秒级时间戳（每秒滴答，驱动倒计时）
     const tickNow = ref(Date.now())
@@ -1876,10 +1876,9 @@ createApp({
     const tsToTime = (ts) => ts ? new Date(ts).toLocaleTimeString('zh-CN', {hour12:false}) : '-'
     // ─── 策略名中文化（英文 id → 中文显示名）──────────────────────
     const STRATEGY_NAMES = {
-      'S1_btc_eth_trend':       { label:'S1 · 主流币趋势',  sub:'BTC/ETH · Donchian 突破 · 4h' },
-      'S2_altcoin_reversal':    { label:'S2 · 中盘均值回归', sub:'TOP30 USDT · 1h' },
       'S3_funding_arb':         { label:'S3 · 资金费套利',  sub:'多空对冲' },
       'paper_mean_reversion':   { label:'纸面 · 均值回归', sub:'1m 高频样本' },
+      'paper_swing_breakout':   { label:'纸面 · 波段突破', sub:'15m 低频 · 3R 目标' },
       'explore_momentum':       { label:'探索 · 动量',     sub:'高频测试' },
       'explore_mean_reversion': { label:'探索 · 反转',     sub:'高频测试' },
       'explore_volatility':     { label:'探索 · 波动率',   sub:'高频测试' },

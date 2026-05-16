@@ -26,7 +26,6 @@ from core.risk import (
     L3PortfolioRiskValidator,
     StrategySignalValidator,
 )
-from core.strategy import S1BtcEthTrend, S2AltcoinReversal
 from core.strategy.base import DataRequirement, Signal, Strategy, StrategyContext
 
 UNIVERSE_NAME = "top30"
@@ -76,6 +75,13 @@ _EXPLORATION_VOLATILITY_MIN_RANGE_PCT = 0.0035
 _EXPLORATION_VOLATILITY_CLOSE_EXTREME = 0.80
 _EXPLORATION_TARGET_RISK_MULTIPLIER = 2.2
 _EXPLORATION_SIGNAL_TTL_MS = 8 * 60_000
+_SWING_BREAKOUT_MIN_BREAK_PCT = 0.0012
+_SWING_BREAKOUT_MIN_RANGE_PCT = 0.004
+_SWING_BREAKOUT_VOLUME_MULTIPLE = 1.08
+_SWING_BREAKOUT_STOP_RANGE_MULTIPLE = 1.1
+_SWING_BREAKOUT_MIN_STOP_PCT = 0.008
+_SWING_BREAKOUT_TARGET_RISK_MULTIPLIER = 3.0
+_SWING_BREAKOUT_SIGNAL_TTL_MS = 12 * 60 * 60_000
 _PAPER_TAKER_FEE_RATE = 0.0004
 _PAPER_MARKET_SLIPPAGE_PCT = 0.0001
 _MEAN_REVERSION_MIN_REVERSAL_EDGE_PCT = 0.003
@@ -487,6 +493,68 @@ class ExplorationStrategy:
             suggested_size=0.0,
             rationale=rationale,
             expires_in_ms=_EXPLORATION_SIGNAL_TTL_MS,
+        )
+
+
+@dataclass(slots=True)
+class SwingBreakoutStrategy:
+    """Lower-frequency paper strategy that targets larger 15m breakout moves."""
+
+    name: str = "paper_swing_breakout"
+    min_bars: int = 24
+    confidence: float = 0.64
+
+    def supports(self, symbol: str, timeframe: str) -> bool:
+        return timeframe == "15m"
+
+    def evaluate(self, symbol: str, bars: list[Bar]) -> Signal | None:
+        if len(bars) < self.min_bars + 1:
+            return None
+        last = bars[-1]
+        if last.timeframe != "15m" or last.c <= 0:
+            return None
+        window = bars[-self.min_bars - 1 : -1]
+        previous_high = max(bar.h for bar in window)
+        previous_low = min(bar.l for bar in window)
+        avg_volume = sum(max(bar.v, 0.0) for bar in window) / len(window)
+        avg_range = sum(max(bar.h - bar.l, 0.0) for bar in window) / len(window)
+        last_range_pct = (last.h - last.l) / last.c if last.h > last.l else 0.0
+        volume_ok = avg_volume <= 0 or last.v >= avg_volume * _SWING_BREAKOUT_VOLUME_MULTIPLE
+        range_ok = last_range_pct >= _SWING_BREAKOUT_MIN_RANGE_PCT
+        long_break = last.c >= previous_high * (1.0 + _SWING_BREAKOUT_MIN_BREAK_PCT)
+        short_break = last.c <= previous_low * (1.0 - _SWING_BREAKOUT_MIN_BREAK_PCT)
+        if not (volume_ok and range_ok and (long_break or short_break)):
+            return None
+
+        side = "long" if long_break else "short"
+        stop_distance = max(
+            avg_range * _SWING_BREAKOUT_STOP_RANGE_MULTIPLE,
+            last.c * _SWING_BREAKOUT_MIN_STOP_PCT,
+        )
+        if side == "long":
+            stop_price = last.c - stop_distance
+            target_price = last.c + stop_distance * _SWING_BREAKOUT_TARGET_RISK_MULTIPLIER
+        else:
+            stop_price = last.c + stop_distance
+            target_price = last.c - stop_distance * _SWING_BREAKOUT_TARGET_RISK_MULTIPLIER
+        return Signal(
+            side=side,
+            symbol=symbol,
+            entry_price=None,
+            stop_price=round(stop_price, 8),
+            target_price=round(target_price, 8),
+            confidence=self.confidence,
+            suggested_size=0.0,
+            rationale={
+                "type": "swing_breakout",
+                "timeframe": "15m",
+                "lookback_bars": self.min_bars,
+                "previous_high": previous_high,
+                "previous_low": previous_low,
+                "range_pct": last_range_pct,
+                "volume_multiple": last.v / avg_volume if avg_volume > 0 else None,
+            },
+            expires_in_ms=_SWING_BREAKOUT_SIGNAL_TTL_MS,
         )
 
 
@@ -1085,23 +1153,8 @@ def default_dashboard_strategies(
     account_equity: Callable[[], float] | float = 10_000.0,
 ) -> list[_StrategyLike]:
     return [
-        CoreStrategyAdapter(
-            S1BtcEthTrend(),
-            feed=feed,
-            repo=repo,
-            account_equity=account_equity,
-            trigger_timeframes=["4h"],
-        ),
-        CoreStrategyAdapter(
-            S2AltcoinReversal(),
-            feed=feed,
-            repo=repo,
-            account_equity=account_equity,
-            symbols=DEFAULT_TOP30_USDT,
-            follow_symbols=True,
-            trigger_timeframes=["1h"],
-        ),
         ExplorationStrategy("paper_mean_reversion", min_bars=3),
+        SwingBreakoutStrategy(),
     ]
 
 
@@ -1179,6 +1232,7 @@ __all__ = [
     "DashboardPaperTrader",
     "DashboardRiskPipeline",
     "ExplorationStrategy",
+    "SwingBreakoutStrategy",
     "bars_from_binance_klines",
     "default_dashboard_strategies",
     "default_exploration_strategies",

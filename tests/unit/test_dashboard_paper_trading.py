@@ -17,6 +17,7 @@ from dashboard.paper_trading import (
     CoreStrategyAdapter,
     DashboardPaperTrader,
     ExplorationStrategy,
+    SwingBreakoutStrategy,
     bars_from_binance_klines,
     default_dashboard_strategies,
     select_top_usdt_symbols,
@@ -892,7 +893,7 @@ def test_dashboard_paper_trader_runs_core_strategy_adapter(
     assert [row["strategy_version"] for row in order_rows] == ["S_core_test"]
 
 
-def test_default_dashboard_strategies_include_core_and_profitable_paper_strategy_only(
+def test_default_dashboard_strategies_use_paper_strategies_only(
     tmp_path: Path,
     sqlite_repo: SqliteRepo,
 ) -> None:
@@ -901,9 +902,10 @@ def test_default_dashboard_strategies_include_core_and_profitable_paper_strategy
 
     names = [strategy.name for strategy in default_dashboard_strategies(feed=feed, repo=sqlite_repo)]
 
-    assert "S1_btc_eth_trend" in names
-    assert "S2_altcoin_reversal" in names
     assert "paper_mean_reversion" in names
+    assert "paper_swing_breakout" in names
+    assert "S1_btc_eth_trend" not in names
+    assert "S2_altcoin_reversal" not in names
     assert "paper_momentum" not in names
     assert "paper_volatility" not in names
     assert "explore_momentum" not in names
@@ -912,23 +914,34 @@ def test_default_dashboard_strategies_include_core_and_profitable_paper_strategy
     assert "S3_pair_trading" not in names
 
 
-def test_default_dashboard_s2_follows_top30_symbols(
-    tmp_path: Path,
-    sqlite_repo: SqliteRepo,
-) -> None:
-    cache = MemoryCache(max_bars=20)
-    feed = LiveFeed(ParquetIO(data_root=tmp_path / "parquet"), sqlite_repo, cache)
-    strategies = default_dashboard_strategies(feed=feed, repo=sqlite_repo)
-    s2 = next(strategy for strategy in strategies if strategy.name == "S2_altcoin_reversal")
+def test_swing_breakout_strategy_trades_only_on_confirmed_15m_breakout() -> None:
+    strategy = SwingBreakoutStrategy(min_bars=24)
+    base_ts = 1_700_000_000_000
+    warmup = [
+        Bar("BTCUSDT", "15m", base_ts + i * 900_000, 100, 101 + i * 0.02, 99, 100.5 + i * 0.01, 100 + i, closed=True)
+        for i in range(24)
+    ]
+    weak_breakout = [
+        *warmup,
+        Bar("BTCUSDT", "15m", base_ts + 24 * 900_000, 100.5, 101.02, 100.2, 101.05, 130, closed=True),
+    ]
+    confirmed_breakout = [
+        *warmup,
+        Bar("BTCUSDT", "15m", base_ts + 24 * 900_000, 100.5, 103.2, 100.2, 103.0, 180, closed=True),
+    ]
 
-    assert "SOLUSDT" in s2.requirement.symbols
-    assert s2.supports("SOLUSDT", "1h")
+    assert not strategy.supports("BTCUSDT", "1m")
+    assert strategy.supports("BTCUSDT", "15m")
+    assert strategy.evaluate("BTCUSDT", weak_breakout) is None
 
-    s2.replace_symbols(["BTCUSDT", "ETHUSDT", "SUIUSDT"])
+    signal = strategy.evaluate("BTCUSDT", confirmed_breakout)
 
-    assert s2.requirement.symbols == ["BTCUSDT", "ETHUSDT", "SUIUSDT"]
-    assert s2.supports("SUIUSDT", "1h")
-    assert not s2.supports("SOLUSDT", "1h")
+    assert signal is not None
+    assert signal.side == "long"
+    assert signal.target_price is not None
+    assert signal.stop_price is not None
+    assert (signal.target_price - 103.0) / (103.0 - signal.stop_price) >= 2.9
+    assert signal.expires_in_ms >= 4 * 60 * 60 * 1000
 
 
 def test_dashboard_paper_trader_routes_required_timeframe_to_core_strategy(

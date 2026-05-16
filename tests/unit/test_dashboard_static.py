@@ -208,6 +208,13 @@ def test_dashboard_static_page_shows_strategy_pnl_breakdown() -> None:
         assert token in html, f"missing strategy breakdown token: {token!r}"
 
 
+def test_dashboard_static_page_labels_swing_breakout_strategy() -> None:
+    html = _html()
+    assert "paper_swing_breakout" in html
+    assert "波段突破" in html
+    assert "15m" in html
+
+
 # ─── 6. 实盘试运行通道（安全约束） ──────────────────────────────────
 
 

@@ -124,7 +124,7 @@ class DataSimulator:
 
         intent = OrderIntent(
             signal_id=0,
-            strategy=random.choice(["S1_btc_eth_trend", "S2_altcoin_reversal", "S3_funding_arbitrage"]),
+            strategy=random.choice(["paper_mean_reversion", "paper_swing_breakout"]),
             strategy_version="dev",
             client_order_id=f"paper_{uuid.uuid4().hex[:8]}",
             symbol=symbol,
